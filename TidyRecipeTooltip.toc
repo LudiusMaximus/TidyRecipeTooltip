@@ -1,0 +1,11 @@
+## Interface: 80200
+## Title: TidyRecipeTooltip
+## Author: LudiusMaximus
+## Notes: Rearranges the tooltip of recipes in a meaningfull way.
+## RequiredDeps:
+## Version: 1.0
+
+embeds.xml
+
+main.lua
+
