@@ -1,17 +1,3 @@
--- local folderName = ...
--- local L = LibStub("AceAddon-3.0"):NewAddon(folderName, "AceTimer-3.0")
--- local startupFrame = CreateFrame("Frame")
--- startupFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
--- startupFrame:SetScript("OnEvent", function(self, event, ...)
-  -- L:ScheduleTimer("initCode", 5.0)
--- end)
-
--- function L:initCode()
-
--- end
-
-
-
 local folderName = ...
 local L = LibStub("AceAddon-3.0"):NewAddon(folderName, "AceTimer-3.0")
 
@@ -103,6 +89,10 @@ function L:initCode()
 
     -- OnTooltipSetItem gets called twice for recipes which contain embedded items. We only want the second one!
     local name, link = self:GetItem()
+
+    -- Just to be on the safe side...
+    if not name or not link then return end
+
     local _, _, _, _, _, _, _, _, _, _, itemSellPrice, itemTypeId = GetItemInfo(link)
 
     if (itemTypeId == LE_ITEM_CLASS_RECIPE) then
@@ -271,7 +261,7 @@ function L:initCode()
         -- Print the reagents.
         self:AddLine(" ")
         self:AddLine(MINIMAP_TRACKING_VENDOR_REAGENT .. ": " .. leftText[useTeachesYouLineNumber+1], leftTextR[useTeachesYouLineNumber+1], leftTextG[useTeachesYouLineNumber+1], leftTextB[useTeachesYouLineNumber+1], true)
-        
+
         tooltipNeedsTidying = false
       end
     end
@@ -279,32 +269,4 @@ function L:initCode()
     if otherScripts then return otherScripts(self, ...) end
   end);
 end
-
-
-
-
-
-
-
-
-
-
--- local mainFrame = CreateFrame("Frame", nil, UIParent)
-
--- mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
--- mainFrame:SetFrameStrata("FULLSCREEN")
--- mainFrame:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-                      -- edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
-                      -- tile = true, tileSize = 16, edgeSize = 16,
-                      -- insets = { left = 4, right = 4, top = 4, bottom = 4 }})
--- mainFrame:SetBackdropColor(0.0, 0.0, 0.0, 1.0)
-
-
--- mainFrame:SetWidth(300)
--- mainFrame:SetHeight(100)
-
--- local text = mainFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
--- text:SetPoint("CENTER", mainFrame, "CENTER", 0, 0)
--- text:SetText("Test")
-
 
