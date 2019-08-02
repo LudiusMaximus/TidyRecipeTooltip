@@ -102,7 +102,7 @@ function L:initCode()
   GameTooltip:SetScript("OnTooltipSetItem", function(self, ...)
 
     -- OnTooltipSetItem gets called twice for recipes which contain embedded items. We only want the second one!
-    local _, link = self:GetItem()
+    local name, link = self:GetItem()
     local _, _, _, _, _, _, _, _, _, _, itemSellPrice, itemTypeId = GetItemInfo(link)
 
     if (itemTypeId == LE_ITEM_CLASS_RECIPE) then
