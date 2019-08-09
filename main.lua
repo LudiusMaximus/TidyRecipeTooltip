@@ -15,7 +15,8 @@ local GameTooltip = _G.GameTooltip
 local GetItemInfo = _G.GetItemInfo
 
 local ITEM_SPELL_TRIGGER_ONUSE = _G.ITEM_SPELL_TRIGGER_ONUSE
-
+local TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN = _G.TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN
+local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 
 -- Have to set my prehook after all other tooltip addons have loaded.
 -- Therefore take this timer!
@@ -74,8 +75,6 @@ else
 end
 
 
-local tooltipNeedsTidying = false
-
 
 function L:initCode()
 
@@ -97,173 +96,152 @@ function L:initCode()
 
     if (itemTypeId == LE_ITEM_CLASS_RECIPE) then
 
-      -- Store the MoneyFrame and useTeachesYou line number for later.
-      local moneyFrameLineNumber = nil
-      local moneyAmount = nil
+      -- Scan the tooltip for "Use: Teaches you". (See above)
+
+      -- Search from bottom to top, because the searched line is most likely down.
+      -- Only search up to line 2, because the searched line is definitely not topmost.
+      local tooltipNeedsTidying = false
+      for i = self:NumLines(), 2, -1 do
+        local line = _G[self:GetName().."TextLeft"..i]:GetText()
+        if string_find(line, searchPattern) then
+          tooltipNeedsTidying = true
+          break
+        end
+      end
+
+      if not tooltipNeedsTidying then return end
+
+
+      -- Collect the important line numbers.
+      local recipeProductFirstLineNumber = nil
       local useTeachesYouLineNumber = nil
+      local reagentsLineNumber = nil
+      local moneyFrameLineNumber = nil
+      -- Should always be the same as itemSellPrice.
+      local moneyAmount = nil
 
-      -- The easiest way of knowing when it is the first of two calls is
-      -- when the moneyFrame is not yet visible. But this only works
-      -- for recipes with an itemSellPrice.
+
+      -- Check if there is a moneyFrameLineNumber.
       if itemSellPrice > 0 then
+        if self.shownMoneyFrames then
+          -- If there are money frames, we check if "SELL_PRICE: ..." is among them.
+          for i = 1, self.shownMoneyFrames, 1 do
 
-        -- If there are no money frames at all, we are done.
-        if not self.shownMoneyFrames then tooltipNeedsTidying = true return end
+            local moneyFrameName = self:GetName().."MoneyFrame"..i
+            if _G[moneyFrameName.."PrefixText"]:GetText() == string_format("%s:", SELL_PRICE) then
 
-        -- If there are money frames, we check if "SELL_PRICE: ..." is among them,
-        -- assuming that no other addon has put it there before the Blizzard UI.
-        for i = 1, self.shownMoneyFrames, 1 do
-
-          local moneyFrameName = self:GetName().."MoneyFrame"..i
-
-          if _G[moneyFrameName.."PrefixText"]:GetText() == string_format("%s:", SELL_PRICE) then
-
-            local _, moneyFrameAnchor = _G[moneyFrameName]:GetPoint(1)
-            moneyFrameLineNumber = tonumber(string_match(moneyFrameAnchor:GetName(), self:GetName().."TextLeft(%d+)"))
-
-            -- It is OK to use _G[moneyFrameName] here, because recipes never stack.
-            -- Otherwise we would have to do it like my SellPricePerUnit addon.
-            moneyAmount = _G[moneyFrameName].staticMoney
-
-            break
+              local _, moneyFrameAnchor = _G[moneyFrameName]:GetPoint(1)
+              moneyFrameLineNumber = tonumber(string_match(moneyFrameAnchor:GetName(), self:GetName().."TextLeft(%d+)"))
+              -- Should always be the same as itemSellPrice, as recipes never stack.
+              moneyAmount = _G[moneyFrameName].staticMoney
+              break
+            end
           end
         end
+      end
 
-        if not moneyFrameLineNumber then tooltipNeedsTidying = true return end
 
-      -- For recipes without itemSellPrice (e.g. soulbound) we have to
-      -- scan the tooltip for "Use: Teaches you". (See above)
-      else
+      -- Scan the original tooltip and collect the lines.
+      -- Store all text and text colours of the original tooltip lines.
+      -- TODO: Unfortunately I do not know how to store the "indented word wrap".
+      --       Therefore, we have to put wrap=true for all lines in the new tooltip.
+      local leftText = {}
+      local leftTextR = {}
+      local leftTextG = {}
+      local leftTextB = {}
 
-        -- Search from bottom to top, because the searched line is most likely down.
-        -- Only search up to line 2, because the searched line is definitely not topmost.
-        for i = self:NumLines(), 2, -1 do
-          local line = _G[self:GetName().."TextLeft"..i]:GetText()
-          if string_find(line, searchPattern) then
+      local rightText = {}
+      local rightTextR = {}
+      local rightTextG = {}
+      local rightTextB = {}
+
+
+      -- Store the number of lines for after ClearLines().
+      local numLines = self:NumLines()
+
+      -- Store all lines of the original tooltip.
+      for i = 1, numLines, 1 do
+
+        leftText[i] = _G[self:GetName().."TextLeft"..i]:GetText()
+        leftTextR[i], leftTextG[i], leftTextB[i] = _G[self:GetName().."TextLeft"..i]:GetTextColor()
+
+        rightText[i] = _G[self:GetName().."TextRight"..i]:GetText()
+        rightTextR[i], rightTextG[i], rightTextB[i] = _G[self:GetName().."TextRight"..i]:GetTextColor()
+
+
+        -- Collect the important line numbers.
+        
+        -- The recipe prodocut line begins with a line break!
+        if not recipeProductFirstLineNumber then
+          if string_byte(string_sub(leftText[i], 1, 1)) == 10 then
+            recipeProductFirstLineNumber = i
+          end
+        elseif not useTeachesYouLineNumber then
+          if string_find(leftText[i], searchPattern) then
             useTeachesYouLineNumber = i
-            break
+          end
+        elseif not reagentsLineNumber then
+          -- The reagents are directly after useTeachesYouLineNumber
+          -- unless TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN is in between.
+          if leftText[i] ~= TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN then
+            reagentsLineNumber = i
           end
         end
-
-        if not useTeachesYouLineNumber then tooltipNeedsTidying = true return end
 
       end
 
 
+      -- Sometimes recipeProductFirstLineNumber is not found at the first try...
+      if not recipeProductFirstLineNumber then return end
 
 
-      if tooltipNeedsTidying then
-
-        -- Scan the original tooltip and collect the lines.
-        -- Store all text and text colours of the original tooltip lines.
-        -- TODO: Unfortunately I do not know how to store the "indented word wrap".
-        --       Therefore, we have to put wrap=true for all lines in the new tooltip.
-        local leftText = {}
-        local leftTextR = {}
-        local leftTextG = {}
-        local leftTextB = {}
-
-        local rightText = {}
-        local rightTextR = {}
-        local rightTextG = {}
-        local rightTextB = {}
+      self:ClearLines()
+      -- Got to override GameTooltip.GetItem(), such that other addons can still use it
+      -- to learn which item is displayed. Will be restored after GameTooltip:OnHide() (see above).
+      self.GetItem = function(self) return name, link end
 
 
-        -- At recipeProductFirstLineNumber begins the description of the product item.
-        local recipeProductFirstLineNumber = nil
-
-
-        -- Store the number of lines for after ClearLines().
-        local numLines = self:NumLines()
-
-        -- Store all lines of the original tooltip.
-        for i = 1, numLines, 1 do
-
-          leftText[i] = _G[self:GetName().."TextLeft"..i]:GetText()
-          leftTextR[i], leftTextG[i], leftTextB[i] = _G[self:GetName().."TextLeft"..i]:GetTextColor()
-
-          rightText[i] = _G[self:GetName().."TextRight"..i]:GetText()
-          rightTextR[i], rightTextG[i], rightTextB[i] = _G[self:GetName().."TextRight"..i]:GetTextColor()
-
-          -- Collect the important line numbers.
-          if not recipeProductFirstLineNumber then
-            -- The line begins with a line break!
-            if string_byte(string_sub(leftText[i], 1, 1)) == 10 then
-              recipeProductFirstLineNumber = i
-            end
-          elseif not useTeachesYouLineNumber then
-            if string_find(leftText[i], searchPattern) then
-              useTeachesYouLineNumber = i
-            end
-          end
-
+      -- Print the header lines.
+      for i = 1, recipeProductFirstLineNumber-1, 1 do
+        if rightText[i] then
+          self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
+        else
+          self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
         end
-
-
-        -- Sometimes recipeProductFirstLineNumber is not found at the first try...
-        if not recipeProductFirstLineNumber then return end
-
-
-        self:ClearLines()
-        -- Got to override GameTooltip.GetItem(), such that other addons can still use it
-        -- to learn which item is displayed. Will be restored after GameTooltip:OnHide() (see above).
-        self.GetItem = function(self) return name, link end
-
-
-        -- Print the header lines.
-        for i = 1, recipeProductFirstLineNumber-1, 1 do
-          if rightText[i] then
-            self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
-          else
-            self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
-          end
-        end
-
-        -- Print "Use: Teaches you" in green!
-        self:AddLine(leftText[useTeachesYouLineNumber], 0, 1, 0, true)
-
-        -- Print everything including and after useTeachesYouLineNumber+2.
-        local lastLine = numLines
-        if moneyFrameLineNumber then
-          lastLine = moneyFrameLineNumber - 1
-        end
-
-        for i = useTeachesYouLineNumber+2, lastLine, 1 do
-          if rightText[i] then
-            self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
-          else
-            self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
-          end
-        end
-
-        if moneyFrameLineNumber then
-          SetTooltipMoney(self, moneyAmount, nil, string_format("%s:", SELL_PRICE))
-          -- Print the rest, if any.
-          for i = moneyFrameLineNumber+1, numLines, 1 do
-            if rightText[i] then
-              self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
-            else
-              self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
-            end
-          end
-        end
-
-
-        -- Print the recipe product info.
-        for i = recipeProductFirstLineNumber, useTeachesYouLineNumber-1, 1 do
-          if rightText[i] then
-            self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
-          else
-            self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
-          end
-        end
-
-        -- Print the reagents.
-        self:AddLine(" ")
-        self:AddLine(MINIMAP_TRACKING_VENDOR_REAGENT .. ": " .. leftText[useTeachesYouLineNumber+1], leftTextR[useTeachesYouLineNumber+1], leftTextG[useTeachesYouLineNumber+1], leftTextB[useTeachesYouLineNumber+1], true)
-
-        tooltipNeedsTidying = false
       end
+
+      -- Print "Use: Teaches you" in green!
+      self:AddLine(leftText[useTeachesYouLineNumber], 0, 1, 0, true)
+
+      -- Print everything after useTeachesYouLineNumber except for reagentsLineNumber and moneyFrameLineNumber.
+      for i = useTeachesYouLineNumber+1, numLines, 1 do
+        if i ~= reagentsLineNumber and i~= moneyFrameLineNumber then 
+          if rightText[i] then
+            self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
+          else
+            self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
+          end
+        end
+      end
+
+      -- Print a money line if applicable.
+      if moneyAmount or itemSellPrice then
+        SetTooltipMoney(self, moneyAmount or itemSellPrice, nil, string_format("%s:", SELL_PRICE))
+      end
+
+      -- Print the recipe product info.
+      for i = recipeProductFirstLineNumber, useTeachesYouLineNumber-1, 1 do
+        if rightText[i] then
+          self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
+        else
+          self:AddLine(leftText[i], leftTextR[i], leftTextG[i], leftTextB[i], true)
+        end
+      end
+
+      -- Print the reagents.
+      self:AddLine(" ")
+      self:AddLine(MINIMAP_TRACKING_VENDOR_REAGENT .. ": " .. leftText[reagentsLineNumber], leftTextR[reagentsLineNumber], leftTextG[reagentsLineNumber], leftTextB[reagentsLineNumber], true)
+
     end
 
     if otherScripts then return otherScripts(self, ...) end
