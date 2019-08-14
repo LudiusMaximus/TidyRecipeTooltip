@@ -14,6 +14,9 @@ local CreateFrame = _G.CreateFrame
 local GameTooltip = _G.GameTooltip
 local GetItemInfo = _G.GetItemInfo
 
+local LE_ITEM_RECIPE_BOOK = _G.LE_ITEM_RECIPE_BOOK
+local LE_ITEM_CLASS_RECIPE = _G.LE_ITEM_CLASS_RECIPE
+
 local ITEM_SPELL_TRIGGER_ONUSE = _G.ITEM_SPELL_TRIGGER_ONUSE
 local TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN = _G.TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN
 local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
@@ -59,18 +62,9 @@ local teachesYouString = {
 }
 
 local locale = GetLocale()
-local searchPattern = nil
-if teachesYouString[locale] then
-
-
-  -- koKR is right to left.
-  if locale == "koKR" then
-    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. " .+" .. teachesYouString[locale]
-  else
-    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. " " .. teachesYouString[locale]
-  end
-
-else
+local localeFound = true
+if not teachesYouString[locale] then
+  localeFound = false
   print("TidyRecipeTooltip: Locale", locale, "not supported. Contact the developer!")
 end
 
@@ -78,7 +72,7 @@ end
 
 function L:initCode()
 
-  if not searchPattern then return end
+  if not localeFound then return end
 
   -- Save any previously registered scripts.
   local otherScripts = GameTooltip:GetScript("OnTooltipSetItem")
@@ -90,14 +84,40 @@ function L:initCode()
     local name, link = self:GetItem()
 
     -- Just to be on the safe side...
-    if not name or not link then return end
+    if not name or not link then return otherScripts(self, ...) end
 
-    local _, _, _, _, _, _, _, _, _, _, itemSellPrice, itemTypeId = GetItemInfo(link)
+    local _, _, _, _, _, _, _, _, _, _, itemSellPrice, itemTypeId, itemSubTypeID = GetItemInfo(link)
 
-    if (itemTypeId == LE_ITEM_CLASS_RECIPE) then
+    -- Only looking at recipes, but not touching those books...
+    if itemTypeId == LE_ITEM_CLASS_RECIPE and itemSubTypeID ~= LE_ITEM_RECIPE_BOOK then
 
-      -- Scan the tooltip for "Use: Teaches you". (See above)
 
+      -- Some recipes may even have two "Use: Teaches you" lines
+      -- (e.g. https://www.wowhead.com/item=67538/recipe-vial-of-the-sands)
+      -- which is why we have to check that it is the correct one.
+
+      local productName = nil
+      -- zhCN and zhTW have a special colon.
+      if locale == "zhCN" or locale == "zhTW" then
+        productName = string_match(name, ".-：(.+)")
+      else
+        productName = string_match(name, ".-: (.+)")
+      end
+
+      -- If something goes wrong, do nothing.
+      if not productName then return otherScripts(self, ...) end
+
+
+      local searchPattern = nil
+      -- koKR is right to left.
+      if locale == "koKR" then
+        searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. productName .. ".-" .. teachesYouString[locale]
+      else
+        searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale] .. ".-" .. productName
+      end
+
+
+      -- Scan the tooltip for "Use: Teaches you".
       -- Search from bottom to top, because the searched line is most likely down.
       -- Only search up to line 2, because the searched line is definitely not topmost.
       local tooltipNeedsTidying = false
@@ -109,7 +129,7 @@ function L:initCode()
         end
       end
 
-      if not tooltipNeedsTidying then return end
+      if not tooltipNeedsTidying then return otherScripts(self, ...) end
 
 
       -- Collect the important line numbers.
@@ -159,6 +179,7 @@ function L:initCode()
       -- Store the number of lines for after ClearLines().
       local numLines = self:NumLines()
 
+
       -- Store all lines of the original tooltip.
       for i = 1, numLines, 1 do
 
@@ -170,7 +191,7 @@ function L:initCode()
 
 
         -- Collect the important line numbers.
-        
+
         -- The recipe prodocut line begins with a line break!
         if not recipeProductFirstLineNumber then
           if string_byte(string_sub(leftText[i], 1, 1)) == 10 then
@@ -192,7 +213,7 @@ function L:initCode()
 
 
       -- Sometimes recipeProductFirstLineNumber is not found at the first try...
-      if not recipeProductFirstLineNumber then return end
+      if not recipeProductFirstLineNumber then return otherScripts(self, ...) end
 
 
       self:ClearLines()
@@ -215,7 +236,7 @@ function L:initCode()
 
       -- Print everything after useTeachesYouLineNumber except for reagentsLineNumber and moneyFrameLineNumber.
       for i = useTeachesYouLineNumber+1, numLines, 1 do
-        if i ~= reagentsLineNumber and i~= moneyFrameLineNumber then 
+        if i ~= reagentsLineNumber and i~= moneyFrameLineNumber then
           if rightText[i] then
             self:AddDoubleLine(leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i])
           else
@@ -225,7 +246,7 @@ function L:initCode()
       end
 
       -- Print a money line if applicable.
-      if moneyAmount or itemSellPrice then
+      if moneyAmount or itemSellPrice > 0 then
         SetTooltipMoney(self, moneyAmount or itemSellPrice, nil, string_format("%s:", SELL_PRICE))
       end
 
