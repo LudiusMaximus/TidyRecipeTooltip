@@ -47,9 +47,6 @@ end)
 local originalGetItem = GameTooltip.GetItem
 GameTooltip:HookScript("OnHide", function(self)
   GameTooltip.GetItem = originalGetItem
-
-  firstCallAddonsStartLine = nil
-  secondCallAddonsStartLine = nil
 end)
 
 -- These are the lines at which other addons start their content.
@@ -80,12 +77,27 @@ local teachesYouString = {
   ["zhTW"] = "教你"
 }
 
+
+-- Some recipes have two "Use: Teaches you" lines; one for the recipe
+-- and one for the recipe's product.
+-- E.g.: https://www.wowhead.com/item=67538/recipe-vial-of-the-sands
+-- To recognise the line of the recipe, we check if the recipe's product
+-- name occurs in it. This does not necessarily work, because sometimes
+-- some recipes are called differently in the "Use: Teaches you" line.
+-- E.g.: https://de.wowhead.com/item=21371/muster-kernteufelsstofftasche
+-- But as long as it works for all the recipes with two "Use: Teaches you"
+-- lines, we are fine!
+local recipeIdsWithTwoTeachesYouLines = {
+  [67538] = true,      -- Recipe: Vial of the Sands
+}
+
+
 local locale = GetLocale()
 
 
 
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
-local function GetUseTeachesYouLineNumber(tooltip, name)
+local function GetUseTeachesYouLineNumber(tooltip, name, link)
 
   -- We first search for the "Use: Teaches you" line.
   local searchPattern1 = nil
@@ -96,38 +108,7 @@ local function GetUseTeachesYouLineNumber(tooltip, name)
     searchPattern1 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
   end
 
-  -- Some recipes may even have two "Use: Teaches you" lines
-  -- (e.g. https://www.wowhead.com/item=67538/recipe-vial-of-the-sands)
-  -- which is why we have to check if the recipe's product name
-  -- occurs in it
-  local productName = nil
-  -- zhCN and zhTW have a special colon.
-  if locale == "zhCN" or locale == "zhTW" then
-    productName = string_match(name, ".-：(.+)")
-  else
-    productName = string_match(name, ".-: (.+)")
-  end
-  if not productName then return nil end
-
-  -- The complete product name is sometimes not included in the
-  -- "Use: Teaches you" line. E.g.:
-  -- https://www.wowhead.com/item=2698
-  -- https://de.wowhead.com/item=2889
-  -- https://ru.wowhead.com/item=2701
-  -- We therefore search for each word separately.
-  -- This can go wrong, if e.g. for vial-of-the-sands
-  -- "of" or "the" also occur in the recipe product's "Use: Teaches you" line.
-  -- But it seems like the best option right now
-  -- until another counter-ecample is found.
-  -- Sometimes it does not work at all:
-  -- https://de.wowhead.com/item=21371/muster-kernteufelsstofftasche
-  -- Maybe it is better to accept a faulty vial of the sands...?
-  local productNameWords = {}
-  for word in string_gmatch(productName, "%S+") do
-    -- Insert word into the table and espace characters - + % . ( ) [ ].
-    local escapedWord = string_gsub(word, "[%-+%%.()%[%]]", "%%%0")
-    table_insert(productNameWords, escapedWord)
-  end
+  local itemId = tonumber(string_match(link, "^.-:(%d+):"))
 
 
   -- Search from bottom to top, because the searched line is most likely down.
@@ -136,21 +117,55 @@ local function GetUseTeachesYouLineNumber(tooltip, name)
     local line = _G[tooltip:GetName().."TextLeft"..i]:GetText()
     if string_find(line, searchPattern1) then
 
-      -- Search from back to front as the last word is more likely to hit!
-      for j = #productNameWords, 1, -1 do
-
-        local searchPattern2 = nil
-        -- koKR is right to left.
-        if locale == "koKR" then
-          searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. productNameWords[j] .. ".-" .. teachesYouString[locale]
+      if not recipeIdsWithTwoTeachesYouLines[itemId] then
+        return i
+      else
+        
+        -- For recipes with two "Use: Teaches you" lines we check
+        -- if the recipe's product name occurs in it.
+        local productName = nil
+        -- zhCN and zhTW have a special colon.
+        if locale == "zhCN" or locale == "zhTW" then
+          productName = string_match(name, ".-：(.+)")
         else
-          searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale] .. ".-" .. productNameWords[j]
+          productName = string_match(name, ".-: (.+)")
+        end
+        if not productName then return nil end
+
+        -- The complete product name is sometimes not included in the
+        -- "Use: Teaches you" line. E.g.:
+        -- https://ru.wowhead.com/item=67538
+
+        -- We therefore search for each word separately.
+        -- This can go wrong, if e.g. for "Vial of the sands"
+        -- "of" or "the" would also occur in the recipe product's 
+        -- "Use: Teaches you" line. We have to make sure it works
+        -- for every item of recipeIdsWithTwoTeachesYouLines.
+        
+        local productNameWords = {}
+        for word in string_gmatch(productName, "%S+") do
+          -- Insert word into the table and espace characters - + % . ( ) [ ].
+          local escapedWord = string_gsub(word, "[%-+%%.()%[%]]", "%%%0")
+          table_insert(productNameWords, escapedWord)
         end
 
-        if string_find(string_lower(line), string_lower(searchPattern2)) then
-          return i
-        end
+        -- Search from back to front as the last word is more likely to hit!
+        for j = #productNameWords, 1, -1 do
 
+          local searchPattern2 = nil
+          -- koKR is right to left.
+          if locale == "koKR" then
+            searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. productNameWords[j] .. ".-" .. teachesYouString[locale]
+          else
+            searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale] .. ".-" .. productNameWords[j]
+          end
+
+          if string_find(string_lower(line), string_lower(searchPattern2)) then
+            return i
+          end
+          
+        end
+        
       end
     end
   end
@@ -202,7 +217,7 @@ function L:initCode()
     local _, _, _, _, _, _, _, _, _, _, _, itemTypeId, itemSubTypeId = GetItemInfo(link)
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return RunOtherScripts(self, ...) end
 
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name)
+    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
     if not useTeachesYouLineNumber then
 
       -- For debugging:
@@ -246,7 +261,7 @@ function L:initCode()
     -- Only looking at recipes, but not touching those books...
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return end
 
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name)
+    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
     if not useTeachesYouLineNumber then
 
       -- For debugging:
