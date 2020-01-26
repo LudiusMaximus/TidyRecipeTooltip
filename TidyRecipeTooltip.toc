@@ -1,8 +1,8 @@
-## Interface: 80205
-## Title: TidyRecipeTooltip
+## Interface: 80300
+## Title: Tidy Recipe Tooltip
 ## Author: LudiusMaximus
 ## Notes: Rearranges the tooltip of recipes in a meaningfull way.
-## Version: 1.1
+## Version: 1.2
 ## X-Donate: PayPal:ludiusmaximus@gmail.com
 ## X-License: The MIT License (MIT)
 
