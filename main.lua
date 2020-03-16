@@ -54,6 +54,7 @@ local firstCallAddonsStartLine = nil
 local secondCallAddonsStartLine = nil
 
 
+
 -- To identify the first and second call of OnTooltipSetItem().
 local lastPrehook  = GetTime()
 local lastPosthook = GetTime()
@@ -152,9 +153,12 @@ function L:initCode()
     local _, _, _, _, _, _, _, _, _, _, _, itemTypeId, itemSubTypeId = GetItemInfo(link)
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return RunOtherScripts(self, ...) end
 
-    -- local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
-    -- if not useTeachesYouLineNumber then
-    if lastPrehook < GetTime() then
+
+    -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
+    local itemId = tonumber(string_match(link, "^.-:(%d+):"))
+    local _, productId = LibStub("LibRecipes-2.0"):GetRecipeInfo(itemId)
+    
+    if productId and lastPrehook < GetTime() then
 
       lastPrehook = GetTime()
 
@@ -203,7 +207,12 @@ function L:initCode()
     -- Only looking at recipes, but not touching those books...
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return end
 
-    if lastPosthook < GetTime() then
+    
+    -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
+    local itemId = tonumber(string_match(link, "^.-:(%d+):"))
+    local _, productId = LibStub("LibRecipes-2.0"):GetRecipeInfo(itemId)
+    
+    if productId and lastPosthook < GetTime() then
 
       lastPosthook = GetTime()
 
@@ -403,7 +412,8 @@ end
 -- testframe1:SetScript("OnEnter", function()
   -- GameTooltip:SetOwner(testframe1, "ANCHOR_TOPLEFT")
 
-  -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
+  -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
   -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")
 
   -- GameTooltip:Show()
