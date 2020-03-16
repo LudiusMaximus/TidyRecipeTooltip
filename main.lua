@@ -7,9 +7,6 @@ local table_insert = table.insert
 local string_byte = string.byte
 local string_find = string.find
 local string_format = string.format
-local string_gmatch = string.gmatch
-local string_gsub = string.gsub
-local string_lower = string.lower
 local string_match = string.match
 local string_sub = string.sub
 
@@ -19,6 +16,7 @@ local _G = _G
 local CreateFrame = _G.CreateFrame
 local GameTooltip = _G.GameTooltip
 local GetItemInfo = _G.GetItemInfo
+local GetTime     = _G.GetTime
 
 local LE_ITEM_RECIPE_BOOK = _G.LE_ITEM_RECIPE_BOOK
 local LE_ITEM_CLASS_RECIPE = _G.LE_ITEM_CLASS_RECIPE
@@ -56,6 +54,11 @@ local firstCallAddonsStartLine = nil
 local secondCallAddonsStartLine = nil
 
 
+-- To identify the first and second call of OnTooltipSetItem().
+local lastPrehook  = GetTime()
+local lastPosthook = GetTime()
+
+
 -- To know if we are in the first or second call of OnTooltipSetItem() for recipes
 -- we scan the tooltip for the "Use: Teaches you..." line.
 -- There is the global string ITEM_SPELL_TRIGGER_ONUSE for "Use:"
@@ -78,95 +81,29 @@ local teachesYouString = {
 }
 
 
--- Some recipes have two "Use: Teaches you" lines; one for the recipe
--- and one for the recipe's product.
--- E.g.: https://www.wowhead.com/item=67538/recipe-vial-of-the-sands
--- To recognise the line of the recipe, we check if the recipe's product
--- name occurs in it. This does not necessarily work, because sometimes
--- some recipes are called differently in the "Use: Teaches you" line.
--- E.g.: https://de.wowhead.com/item=21371/muster-kernteufelsstofftasche
--- But as long as it works for all the recipes with two "Use: Teaches you"
--- lines, we are fine!
-local recipeIdsWithTwoTeachesYouLines = {
-  [67538] = true,      -- Recipe: Vial of the Sands
-}
-
-
 local locale = GetLocale()
-
 
 
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
 local function GetUseTeachesYouLineNumber(tooltip, name, link)
 
-  -- We first search for the "Use: Teaches you" line.
-  local searchPattern1 = nil
+  local searchPattern = nil
   -- koKR is right to left.
   if locale == "koKR" then
-    searchPattern1 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
+    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
   else
-    searchPattern1 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
+    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
   end
 
-  local itemId = tonumber(string_match(link, "^.-:(%d+):"))
-
-
   -- Search from bottom to top, because the searched line is most likely down.
+  -- Furthermore, if it is an item with two "Use: Teaches you..."
+  -- like "Recipe: Vial of the Sands" (67538) or "Recipe: Elderhorn Riding Harness" (141850),
+  -- we are only interested in the bottommost one.
   -- Only search up to line 2, because the searched line is definitely not topmost.
   for i = tooltip:NumLines(), 2, -1 do
     local line = _G[tooltip:GetName().."TextLeft"..i]:GetText()
-    if string_find(line, searchPattern1) then
-
-      if not recipeIdsWithTwoTeachesYouLines[itemId] then
-        return i
-      else
-        
-        -- For recipes with two "Use: Teaches you" lines we check
-        -- if the recipe's product name occurs in it.
-        local productName = nil
-        -- zhCN and zhTW have a special colon.
-        if locale == "zhCN" or locale == "zhTW" then
-          productName = string_match(name, ".-：(.+)")
-        else
-          productName = string_match(name, ".-: (.+)")
-        end
-        if not productName then return nil end
-
-        -- The complete product name is sometimes not included in the
-        -- "Use: Teaches you" line. E.g.:
-        -- https://ru.wowhead.com/item=67538
-
-        -- We therefore search for each word separately.
-        -- This can go wrong, if e.g. for "Vial of the sands"
-        -- "of" or "the" would also occur in the recipe product's 
-        -- "Use: Teaches you" line. We have to make sure it works
-        -- for every item of recipeIdsWithTwoTeachesYouLines.
-        
-        local productNameWords = {}
-        for word in string_gmatch(productName, "%S+") do
-          -- Insert word into the table and espace characters - + % . ( ) [ ].
-          local escapedWord = string_gsub(word, "[%-+%%.()%[%]]", "%%%0")
-          table_insert(productNameWords, escapedWord)
-        end
-
-        -- Search from back to front as the last word is more likely to hit!
-        for j = #productNameWords, 1, -1 do
-
-          local searchPattern2 = nil
-          -- koKR is right to left.
-          if locale == "koKR" then
-            searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. productNameWords[j] .. ".-" .. teachesYouString[locale]
-          else
-            searchPattern2 = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale] .. ".-" .. productNameWords[j]
-          end
-
-          if string_find(string_lower(line), string_lower(searchPattern2)) then
-            return i
-          end
-          
-        end
-        
-      end
+    if string_find(line, searchPattern) then
+      return i
     end
   end
 
@@ -182,8 +119,6 @@ local function AddLineOrDoubleLine(tooltip, leftText, rightText, leftTextR, left
     tooltip:AddLine(leftText, leftTextR, leftTextG, leftTextB, intendedWordWrap)
   end
 end
-
-
 
 
 function L:initCode()
@@ -217,8 +152,11 @@ function L:initCode()
     local _, _, _, _, _, _, _, _, _, _, _, itemTypeId, itemSubTypeId = GetItemInfo(link)
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return RunOtherScripts(self, ...) end
 
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
-    if not useTeachesYouLineNumber then
+    -- local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
+    -- if not useTeachesYouLineNumber then
+    if lastPrehook < GetTime() then
+
+      lastPrehook = GetTime()
 
       -- For debugging:
       -- print("|n|nPREHOOK: This is the first call, STOP!")
@@ -232,7 +170,7 @@ function L:initCode()
       return RunOtherScripts(self, ...)
 
     end
-      
+
     -- For debugging:
     -- print("|n|nPREHOOK: This is the second call, PROCEED!")
     -- for i = 1, self:NumLines(), 1 do
@@ -240,10 +178,14 @@ function L:initCode()
       -- print (i, line)
     -- end
 
+    -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
+    -- Then we have to let the next first call know that it is the first call.
+    lastPrehook = GetTime()-1
+
     secondCallAddonsStartLine = self:NumLines() + 1
 
     return RunOtherScripts(self, ...)
-    
+
   end)
 
 
@@ -261,8 +203,9 @@ function L:initCode()
     -- Only looking at recipes, but not touching those books...
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return end
 
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
-    if not useTeachesYouLineNumber then
+    if lastPosthook < GetTime() then
+
+      lastPosthook = GetTime()
 
       -- For debugging:
       -- print("|n|nPOSTHOOK: This is the first call, STOP!")
@@ -272,9 +215,9 @@ function L:initCode()
       -- end
 
       return
-      
+
     end
-    
+
 
     -- For debugging:
     -- print("|n|nPOSTHOOK: This is the second call, PROCEED!")
@@ -283,7 +226,9 @@ function L:initCode()
       -- print (i, line)
     -- end
 
-
+    -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
+    -- Then we have to let the next first call know that it is the first call.
+    lastPosthook = GetTime()-1
 
     -- Collect the other important line numbers.
     local recipeProductFirstLineNumber = nil
@@ -314,6 +259,13 @@ function L:initCode()
 
 
     -- Scan the original tooltip and collect the lines.
+
+
+    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
+    if not useTeachesYouLineNumber then
+      print("TidyRecipeTooltip: Could not finde \"Use: Teaches you...\" line. Please contact the developer!")
+    end
+
     -- Store all text and text colours of the original tooltip lines.
     -- TODO: Unfortunately I do not know how to store the "indented word wrap".
     --       Therefore, we have to put wrap=true for most lines in the new tooltip,
@@ -329,8 +281,12 @@ function L:initCode()
     local rightTextB = {}
 
 
+
+
     -- Store the number of lines for after ClearLines().
     local numLines = self:NumLines()
+
+
 
 
     -- Store all lines of the original tooltip.
@@ -419,4 +375,37 @@ function L:initCode()
 
   end);
 end
+
+
+
+
+
+-- -- To test recipe tooltips by item id:
+-- local testframe1 = CreateFrame("Frame")
+-- testframe1:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+-- testframe1:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+                      -- edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
+                      -- tile = true, tileSize = 16, edgeSize = 16,
+                      -- insets = { left = 4, right = 4, top = 4, bottom = 4 }})
+-- testframe1:SetBackdropColor(0.0, 0.0, 0.0, 1.0)
+
+-- testframe1:SetWidth(300)
+-- testframe1:SetHeight(100)
+
+-- testframe1:SetMovable(true)
+-- testframe1:EnableMouse(true)
+-- testframe1:RegisterForDrag("LeftButton")
+-- testframe1:SetScript("OnDragStart", testframe1.StartMoving)
+-- testframe1:SetScript("OnDragStop", testframe1.StopMovingOrSizing)
+-- testframe1:SetClampedToScreen(true)
+
+
+-- testframe1:SetScript("OnEnter", function()
+  -- GameTooltip:SetOwner(testframe1, "ANCHOR_TOPLEFT")
+
+  -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")
+
+  -- GameTooltip:Show()
+-- end )
 

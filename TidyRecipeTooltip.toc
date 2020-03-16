@@ -2,7 +2,7 @@
 ## Title: Tidy Recipe Tooltip
 ## Author: LudiusMaximus
 ## Notes: Rearranges the tooltip of recipes in a meaningfull way.
-## Version: 1.2
+## Version: 1.3
 ## X-Donate: PayPal:ludiusmaximus@gmail.com
 ## X-License: The MIT License (MIT)
 
