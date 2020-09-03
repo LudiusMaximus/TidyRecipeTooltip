@@ -1,0 +1,8 @@
+package-as: TidyRecipeTooltip
+
+enable-nolib-creation: no
+
+ludius-changelog: yes
+
+ignore:
+ - README.md

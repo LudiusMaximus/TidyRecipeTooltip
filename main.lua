@@ -1,6 +1,4 @@
 local folderName = ...
-local L = LibStub("AceAddon-3.0"):NewAddon(folderName, "AceTimer-3.0")
-
 
 local table_insert = table.insert
 
@@ -24,17 +22,6 @@ local LE_ITEM_CLASS_RECIPE = _G.LE_ITEM_CLASS_RECIPE
 local ITEM_SPELL_TRIGGER_ONUSE = _G.ITEM_SPELL_TRIGGER_ONUSE
 local TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN = _G.TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN
 local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
-
--- I have to set my hook after all other tooltip addons.
--- Because I am doing a ClearLines(), which may cause other addons (like BagSync)
--- to clear the attribute they are using to only execute on the first of the
--- two calls of OnTooltipSetItem().
--- Therefore take this timer!
-local startupFrame = CreateFrame("Frame")
-startupFrame:RegisterEvent("PLAYER_LOGIN")
-startupFrame:SetScript("OnEvent", function(self, event, ...)
-  L:ScheduleTimer("initCode", 3.0)
-end)
 
 
 
@@ -88,13 +75,8 @@ local locale = GetLocale()
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
 local function GetUseTeachesYouLineNumber(tooltip, name, link)
 
-  local searchPattern = nil
-  -- koKR is right to left.
-  if locale == "koKR" then
-    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
-  else
-    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
-  end
+  -- This works also for koKR, which is right to left.
+  local searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
 
   -- Search from bottom to top, because the searched line is most likely down.
   -- Furthermore, if it is an item with two "Use: Teaches you..."
@@ -122,10 +104,10 @@ local function AddLineOrDoubleLine(tooltip, leftText, rightText, leftTextR, left
 end
 
 
-function L:initCode()
+local function InitCode()
 
   if not teachesYouString[locale] then
-    print("TidyRecipeTooltip: Locale", locale, "not supported. Contact the developer!")
+    print("TidyRecipeTooltip: Locale", locale, "not supported. Please contact the developer!")
     return
   end
 
@@ -156,8 +138,11 @@ function L:initCode()
 
     -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
     local itemId = tonumber(string_match(link, "^.-:(%d+):"))
-    local _, productId = LibStub("LibRecipes-2.0"):GetRecipeInfo(itemId)
-    
+    local spellId, productId = LibStub("LibRecipes-3.0"):GetRecipeInfo(itemId)
+
+    -- print(spellId, productId)
+    if not spellId and not productId then return end
+
     if productId and lastPrehook < GetTime() then
 
       lastPrehook = GetTime()
@@ -207,11 +192,15 @@ function L:initCode()
     -- Only looking at recipes, but not touching those books...
     if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return end
 
-    
+
     -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
     local itemId = tonumber(string_match(link, "^.-:(%d+):"))
-    local _, productId = LibStub("LibRecipes-2.0"):GetRecipeInfo(itemId)
-    
+    local spellId, productId = LibStub("LibRecipes-3.0"):GetRecipeInfo(itemId)
+
+    -- print(spellId, productId)
+    if not spellId and not productId then return end
+
+
     if productId and lastPosthook < GetTime() then
 
       lastPosthook = GetTime()
@@ -272,7 +261,7 @@ function L:initCode()
 
     local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
     if not useTeachesYouLineNumber then
-      print("TidyRecipeTooltip: Could not finde \"Use: Teaches you...\" line. Please contact the developer!")
+      print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. Please contact the developer!")
     end
 
     -- Store all text and text colours of the original tooltip lines.
@@ -310,7 +299,7 @@ function L:initCode()
 
       -- Collect the important line numbers.
 
-      -- The recipe prodocut line begins with a line break!
+      -- The recipe product line begins with a line break!
       if not recipeProductFirstLineNumber then
         if string_byte(string_sub(leftText[i], 1, 1)) == 10 then
           recipeProductFirstLineNumber = i
@@ -382,9 +371,23 @@ function L:initCode()
       AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
     end
 
-  end);
+  end)
 end
 
+
+
+
+
+-- I have to set my hook after all other tooltip addons.
+-- Because I am doing a ClearLines(), which may cause other addons (like BagSync)
+-- to clear the attribute they are using to only execute on the first of the
+-- two calls of OnTooltipSetItem().
+-- Therefore take this timer!
+local startupFrame = CreateFrame("Frame")
+startupFrame:RegisterEvent("PLAYER_LOGIN")
+startupFrame:SetScript("OnEvent", function(self, event, ...)
+  C_Timer.After(3.0, InitCode)
+end)
 
 
 
@@ -412,9 +415,17 @@ end
 -- testframe1:SetScript("OnEnter", function()
   -- GameTooltip:SetOwner(testframe1, "ANCHOR_TOPLEFT")
 
-  -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")
-  -- -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
+  -- -- Grey recipe not teaching anything.
+  -- -- GameTooltip:SetHyperlink("item:104230:0:0:0:0:0:0:0")
+
+  -- -- Recipes creating a usable item.
+  -- -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")
+  -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
   -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")
+
+  -- -- Formula that only teaches a spell but no item.
+  -- -- GameTooltip:SetHyperlink("item:16252:0:0:0:0:0:0:0")
+
 
   -- GameTooltip:Show()
 -- end )

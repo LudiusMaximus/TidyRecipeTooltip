@@ -1,12 +1,13 @@
 ## Interface: 80300
+## Version: @project-version@
 ## Title: Tidy Recipe Tooltip
 ## Author: LudiusMaximus
 ## Notes: Rearranges the tooltip of recipes in a meaningfull way.
-## Version: 1.3
+## X-Curse-Project-ID: 335775
+## X-WoWI-ID: 25143
 ## X-Donate: PayPal:ludiusmaximus@gmail.com
 ## X-License: The MIT License (MIT)
 
 embeds.xml
 
 main.lua
-
