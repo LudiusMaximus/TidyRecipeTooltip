@@ -261,7 +261,8 @@ local function InitCode()
 
     local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
     if not useTeachesYouLineNumber then
-      print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. Please contact the developer!")
+      print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
+      return
     end
 
     -- Store all text and text colours of the original tooltip lines.
