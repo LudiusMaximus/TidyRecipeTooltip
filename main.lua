@@ -73,10 +73,17 @@ local locale = GetLocale()
 
 
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
-local function GetUseTeachesYouLineNumber(tooltip, name, link)
+local function GetUseTeachesYouLineNumber(tooltip, itemId)
 
   -- This works also for koKR, which is right to left.
   local searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
+
+  -- Buggy tooltips:
+  -- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
+  if itemId == 142331 or itemId == 142333 then
+    searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE
+  end
+
 
   -- Search from bottom to top, because the searched line is most likely down.
   -- Furthermore, if it is an item with two "Use: Teaches you..."
@@ -259,7 +266,7 @@ local function InitCode()
     -- Scan the original tooltip and collect the lines.
 
 
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, name, link)
+    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, itemId)
     if not useTeachesYouLineNumber then
       print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
       return
@@ -394,13 +401,13 @@ end)
 
 
 -- -- To test recipe tooltips by item id:
--- local testframe1 = CreateFrame("Frame")
--- testframe1:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+-- local testframe1 = CreateFrame("Frame", _, UIParent, BackdropTemplateMixin and "BackdropTemplate")
 -- testframe1:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background",
                       -- edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
                       -- tile = true, tileSize = 16, edgeSize = 16,
                       -- insets = { left = 4, right = 4, top = 4, bottom = 4 }})
 -- testframe1:SetBackdropColor(0.0, 0.0, 0.0, 1.0)
+-- testframe1:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 
 -- testframe1:SetWidth(300)
 -- testframe1:SetHeight(100)
@@ -421,12 +428,16 @@ end)
 
   -- -- Recipes creating a usable item.
   -- -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")
-  -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
   -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")
 
   -- -- Formula that only teaches a spell but no item.
   -- -- GameTooltip:SetHyperlink("item:16252:0:0:0:0:0:0:0")
 
+  -- -- Recipes with buggy tooltips.
+  -- -- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
+  -- -- GameTooltip:SetHyperlink("item:142331:0:0:0:0:0:0:0")
+  -- GameTooltip:SetHyperlink("item:142333:0:0:0:0:0:0:0")
 
   -- GameTooltip:Show()
 -- end )
