@@ -31,7 +31,7 @@ local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 -- but it does not hurt either.)
 local originalGetItem = GameTooltip.GetItem
 GameTooltip:HookScript("OnHide", function(self)
-  GameTooltip.GetItem = originalGetItem
+  self.GetItem = originalGetItem
 end)
 
 -- These are the lines at which other addons start their content.
