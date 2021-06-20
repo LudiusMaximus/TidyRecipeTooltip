@@ -43,8 +43,8 @@ local secondCallAddonsStartLine = nil
 
 
 -- To identify the first and second call of OnTooltipSetItem().
-local lastPrehook  = GetTime()
-local lastPosthook = GetTime()
+local lastPrehook  = 0
+local lastPosthook = 0
 
 
 -- To know if we are in the first or second call of OnTooltipSetItem() for recipes
@@ -176,7 +176,7 @@ local function InitCode()
 
     -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
     -- Then we have to let the next first call know that it is the first call.
-    lastPrehook = GetTime()-1
+    lastPrehook = 0
 
     secondCallAddonsStartLine = self:NumLines() + 1
 
@@ -233,7 +233,7 @@ local function InitCode()
 
     -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
     -- Then we have to let the next first call know that it is the first call.
-    lastPosthook = GetTime()-1
+    lastPosthook = 0
 
     -- Collect the other important line numbers.
     local recipeProductFirstLineNumber = nil
@@ -387,7 +387,7 @@ end
 
 
 -- I have to set my hook after all other tooltip addons.
--- Because I am doing a ClearLines(), which may cause other addons (like BagSync)
+-- Because I am doing a ClearLines(), which may cause other addons (like BagSync, Bagnon, etc.)
 -- to clear the attribute they are using to only execute on the first of the
 -- two calls of OnTooltipSetItem().
 -- Therefore take this timer!
