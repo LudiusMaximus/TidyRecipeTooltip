@@ -5,6 +5,7 @@
 ## Notes: Rearranges the tooltip of recipes in a meaningfull way.
 ## X-Curse-Project-ID: 335775
 ## X-WoWI-ID: 25143
+## X-Wago-ID: Xb6X91Kp
 ## X-Donate: PayPal:ludiusmaximus@gmail.com
 ## X-License: The MIT License (MIT)
 
