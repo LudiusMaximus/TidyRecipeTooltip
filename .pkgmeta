@@ -2,7 +2,7 @@ package-as: TidyRecipeTooltip
 
 externals:
     Libs/LibRecipes-3.0:
-        url: https://repos.wowace.com/wow/librecipes-3-0
+        url: https://github.com/warmexx/librecipes-3-0
     Libs/LibStub:
         url: https://repos.wowace.com/wow/libstub/trunk
 
