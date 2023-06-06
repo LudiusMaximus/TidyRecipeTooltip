@@ -1,6 +1,5 @@
 local folderName = ...
 
-local table_insert = table.insert
 
 local string_byte = string.byte
 local string_find = string.find
@@ -25,34 +24,51 @@ local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 
 
 
+
+
+-- -- For debugging.
+-- local function PrintTable(t, indent)
+  -- assert(type(t) == "table", "PrintTable() called for non-table!")
+
+  -- local indentString = ""
+  -- for i = 1, indent do
+    -- indentString = indentString .. "  "
+  -- end
+
+  -- for k, v in pairs(t) do
+    -- if type(v) ~= "table" then
+
+      -- -- if type(v) == "string" and string_find(v, "Steak") then
+      -- if type(v) == "string" then
+        -- print(indentString, k, "=", v)
+      -- end
+    -- else
+      -- print(indentString, k, "=")
+      -- print(indentString, "  {")
+      -- PrintTable(v, indent + 2)
+      -- print(indentString, "  }")
+    -- end
+  -- end
+-- end
+
+
+
+
+
 -- Have to override GameTooltip.GetItem() after calling ClearLines().
 -- This will restore the original after the tooltip is closed.
--- (Actually not needed if we are really the last tooltip hook,
--- but it does not hurt either.)
 local originalGetItem = GameTooltip.GetItem
 GameTooltip:HookScript("OnHide", function(self)
   self.GetItem = originalGetItem
 end)
 
--- These are the lines at which other addons start their content.
--- Depending how clever the other addon is they add their
--- content in the first or second call of OnTooltipSetItem().
-local firstCallAddonsStartLine = nil
-local secondCallAddonsStartLine = nil
 
 
-
--- To identify the first and second call of OnTooltipSetItem().
-local lastPrehook  = 0
-local lastPosthook = 0
-
-
--- To know if we are in the first or second call of OnTooltipSetItem() for recipes
--- we scan the tooltip for the "Use: Teaches you..." line.
+-- To scan the tooltip for the "Use: Teaches you..." line.
 -- There is the global string ITEM_SPELL_TRIGGER_ONUSE for "Use:"
 -- but there is none for "Teaches you...".
 -- Just scanning for "Use:" is not enough, as recipe products have a "Use:" too.
--- Thus, we would have to store these strings for all locales:
+-- Thus, we have to store these strings for all locales:
 local teachesYouString = {
   ["deDE"] = "Lehrt Euch",
   ["enUS"] = "Teaches you",
@@ -70,6 +86,14 @@ local teachesYouString = {
 
 
 local locale = GetLocale()
+
+if not teachesYouString[locale] then
+  print("TidyRecipeTooltip: Locale", locale, "not supported. Please contact the developer!")
+  return
+end
+
+
+
 
 
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
@@ -102,300 +126,351 @@ local function GetUseTeachesYouLineNumber(tooltip, itemId)
 end
 
 
-local function AddLineOrDoubleLine(tooltip, leftText, rightText, leftTextR, leftTextG, leftTextB, rightTextR, rightTextG, rightTextB, intendedWordWrap)
+local function AddLineOrDoubleLine(tooltip, leftText, rightText, leftTextR, leftTextG, leftTextB, rightTextR, rightTextG, rightTextB, indentedWordWrap)
   if rightText then
     tooltip:AddDoubleLine(leftText, rightText, leftTextR, leftTextG, leftTextB, rightTextR, rightTextG, rightTextB)
   else
-    tooltip:AddLine(leftText, leftTextR, leftTextG, leftTextB, intendedWordWrap)
+    tooltip:AddLine(leftText, leftTextR, leftTextG, leftTextB, indentedWordWrap)
   end
 end
 
 
-local function InitCode()
+-- To convert strings with plurals like "2 |4car:cars;" into "2 cars".
+-- This is needed for recipe product tooltips like e.g. that of "Recipe: Elixir of Shadow Power".
+local converterTooltip = CreateFrame("GameTooltip", "converterTooltip", nil, "GameTooltipTemplate")
+local function CovertLine(line)
 
-  if not teachesYouString[locale] then
-    print("TidyRecipeTooltip: Locale", locale, "not supported. Please contact the developer!")
+  -- -- Use this to see what a non-escaped line looks line.
+  -- local newstring = ""
+  -- for j = 1, strlen(line), 1 do
+    -- newstring = newstring .. " " .. strsub(line, j, j)
+  -- end
+  -- print(newstring)
+
+  converterTooltip:ClearLines()
+  converterTooltip:AddLine(line)
+  return _G[converterTooltip:GetName().."TextLeft1"]:GetText()
+end
+
+
+local function RearrangeTooltip(self)
+
+  -- -- For debugging if Blizzard changes something, use this to investigate.
+  -- PrintTable(self, 1)
+  -- if true then return end
+
+
+  -- TooltipUtil.GetDisplayedItem(self) is the same as self:GetItem()
+  local name, unreliableLink, recipeItemId = TooltipUtil.GetDisplayedItem(self)
+  if not name or not unreliableLink or not recipeItemId then return end
+
+  -- Get sell price and types of (potential) recipe. Name for debugging.
+  local recipeItemName, _, _, _, _, _, _, _, _, _, recipeItemSellPrice, recipeItemTypeId, recipeItemSubTypeId = GetItemInfo(recipeItemId)
+  -- print(recipeItemTypeId, Enum.ItemClass.Recipe, recipeItemSubTypeId, Enum.ItemRecipeSubclass.Book)
+
+  -- Only looking at recipes, but not touching those books...
+  if recipeItemTypeId ~= Enum.ItemClass.Recipe or recipeItemSubTypeId == Enum.ItemRecipeSubclass.Book then return end
+
+
+
+  ------------------------------------------------
+  --- Now we know we are dealing with a recipe!
+  ------------------------------------------------
+  -- print("#########################################################")
+  -- print("recipeItemId", recipeItemId)
+
+
+  -- This always gives us the recipe product.
+  local recipeProductItemLink = self.processingInfo.tooltipData.hyperlink
+  if not recipeProductItemLink then return end
+  local recipeProductItemId = tonumber(string_match(recipeProductItemLink, "^.-:(%d+):"))
+  -- print("recipeProductItemId", recipeProductItemId)
+
+  -- Get sell price (and types, not needed) of recipe product.
+  local _, _, _, _, _, _, _, _, _, _, recipeProductItemSellPrice, recipeProductItemTypeId, recipeProductItemSubTypeId = GetItemInfo(recipeProductItemId)
+
+
+  -- -- The "unreliable link" is sometimes the recipe product (e.g. "Formula: Enchanted Lantern"),
+  -- -- and sometimes the recipe itself (e.g. "Recipe: Crocolisk Steak").
+  -- -- It seems that the former is the case when the recipe product is itself a teaching item.
+  -- local unreliableItemId = tonumber(string_match(unreliableLink, "^.-:(%d+):"))
+  -- print("unreliableItemId", unreliableItemId)
+  -- if unreliableItemId ~= recipeItemId then
+    -- print("This recipe generates another teaching item. Do we need this info?")
+  -- end
+
+
+
+  -- Not needing this. We have to traverse the actual tooltip,
+  -- which has possibly the lines of over addons in it.
+  -- local recipeTooltipLines = C_TooltipInfo.GetItemByID(recipeItemId).lines
+
+  -- -- For debugging.
+  -- print("\n")
+  -- print("Tooltip of recipe (only left text):")
+  -- local numLines = 1
+  -- while recipeTooltipLines[numLines] do
+    -- print(numLines, recipeTooltipLines[numLines].leftText)
+    -- numLines = numLines + 1
+  -- end
+  -- print("Sell price of recipe:", recipeItemSellPrice)
+
+
+
+  local recipeProductTooltipLines = C_TooltipInfo.GetItemByID(recipeProductItemId).lines
+
+  -- -- For debugging.
+  -- print("\n")
+  -- print("Tooltip of recipe product (only left text):")
+  -- local numLines = 1
+  -- while recipeProductTooltipLines[numLines] do
+    -- print(numLines, recipeProductTooltipLines[numLines].leftText)
+    -- numLines = numLines + 1
+  -- end
+  -- print("Sell price of recipe product:", recipeProductItemSellPrice)
+
+
+
+  -- If the last line of product tooltip is "", strip it.
+  -- This is necessary because we are double-checking line by line if the
+  -- product tooltip is actually in the recipe tooltip.
+  local numLinesRecipeProduct = 1
+  while recipeProductTooltipLines[numLinesRecipeProduct] do
+    -- Also convert every line into the interpreted form.
+    recipeProductTooltipLines[numLinesRecipeProduct].leftText = CovertLine(recipeProductTooltipLines[numLinesRecipeProduct].leftText)
+    numLinesRecipeProduct = numLinesRecipeProduct + 1
+  end
+  numLinesRecipeProduct = numLinesRecipeProduct - 1
+  if recipeProductTooltipLines[numLinesRecipeProduct].leftText == "" then
+    recipeProductTooltipLines[numLinesRecipeProduct] = nil
+  end
+
+
+  -- To store the line of the money frame.
+  local moneyFrameLineNumber = nil
+  local moneyAmount = nil
+
+  -- Check if there is a moneyFrameLineNumber.
+  if recipeItemSellPrice > 0 then
+    if self.shownMoneyFrames then
+      -- If there are money frames, we check if "SELL_PRICE: ..." is among them.
+      for i = 1, self.shownMoneyFrames, 1 do
+
+        local moneyFrameName = self:GetName().."MoneyFrame"..i
+        if _G[moneyFrameName.."PrefixText"]:GetText() == string_format("%s:", SELL_PRICE) then
+
+          local _, moneyFrameAnchor = _G[moneyFrameName]:GetPoint(1)
+          moneyFrameLineNumber = tonumber(string_match(moneyFrameAnchor:GetName(), self:GetName().."TextLeft(%d+)"))
+          -- Should always be the same as recipeItemSellPrice, as recipes never stack.
+          moneyAmount = _G[moneyFrameName].staticMoney
+          break
+        end
+      end
+    end
+  end
+  if not moneyFrameLineNumber then
+    print("TidyRecipeTooltip: Could not find money line. If this behaviour is reproducible, please contact the developer!")
     return
   end
 
 
-  -- We do a prehook to read the tooltip before any other addons
-  -- have changed it. This will allow us to move their content
-  -- to the bottom regardless of whether they have appended
-  -- it in the first or second call of OnTooltipSetItem().
+  -- To store the line of recipe reagents.
+  local reagentsLineNumber = nil
 
-  local otherScripts = GameTooltip:GetScript("OnTooltipSetItem")
-  local function RunOtherScripts(self, ...)
-    if otherScripts then
-      return otherScripts(self, ...)
-    else
-      return
-    end
+  -- Needed to identify reagent line number.
+  local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, recipeItemId)
+  if not useTeachesYouLineNumber then
+    print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
+    return
   end
 
-  GameTooltip:SetScript("OnTooltipSetItem", function(self, ...)
 
-    -- Find out if this is the first or second call of OnTooltipSetItem().
-    local name, link = self:GetItem()
-    if not name or not link then return RunOtherScripts(self, ...) end
-
-    local _, _, _, _, _, _, _, _, _, _, _, itemTypeId, itemSubTypeId = GetItemInfo(link)
-    if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return RunOtherScripts(self, ...) end
+  -- To store start and end line of recipeProductItem tooltip in recipe tooltip.
+  local productStartLine = nil
+  local productEndLine = nil
 
 
-    -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
-    local itemId = tonumber(string_match(link, "^.-:(%d+):"))
-    local spellId, productId = LibStub("LibRecipes-3.0"):GetRecipeInfo(itemId)
+  -- To store all text and text colours of the original tooltip lines.
+  local leftText = {}
+  local leftTextR = {}
+  local leftTextG = {}
+  local leftTextB = {}
 
-    -- print(spellId, productId)
-    if not spellId and not productId then return end
-
-    if productId and lastPrehook < GetTime() then
-
-      lastPrehook = GetTime()
-
-      -- For debugging:
-      -- print("|n|nPREHOOK: This is the first call, STOP!")
-      -- for i = 1, self:NumLines(), 1 do
-        -- local line = _G[self:GetName().."TextLeft"..i]:GetText()
-        -- print (i, line)
-      -- end
-
-      firstCallAddonsStartLine = self:NumLines() + 1
-
-      return RunOtherScripts(self, ...)
-
-    end
-
-    -- For debugging:
-    -- print("|n|nPREHOOK: This is the second call, PROCEED!")
-    -- for i = 1, self:NumLines(), 1 do
-      -- local line = _G[self:GetName().."TextLeft"..i]:GetText()
-      -- print (i, line)
-    -- end
-
-    -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
-    -- Then we have to let the next first call know that it is the first call.
-    lastPrehook = 0
-
-    secondCallAddonsStartLine = self:NumLines() + 1
-
-    return RunOtherScripts(self, ...)
-
-  end)
+  local rightText = {}
+  local rightTextR = {}
+  local rightTextG = {}
+  local rightTextB = {}
 
 
 
+  -- To compare the tooltip line by line with the product tooltip.
+  local numLinesRecipeProduct = 1
 
 
-  -- This is our posthook in which we are actually doing our changes.
-  GameTooltip:HookScript("OnTooltipSetItem", function(self)
+  local numLinesRecipe = self:NumLines()
 
-    -- Find out if this is the first or second call of OnTooltipSetItem().
-    local name, link = self:GetItem()
-    if not name or not link then return end
+  for i = 1, numLinesRecipe, 1 do
 
-    local _, _, _, _, _, _, _, _, _, _, itemSellPrice, itemTypeId, itemSubTypeId = GetItemInfo(link)
-    -- Only looking at recipes, but not touching those books...
-    if itemTypeId ~= LE_ITEM_CLASS_RECIPE or itemSubTypeId == LE_ITEM_RECIPE_BOOK then return end
+    leftText[i] = _G[self:GetName().."TextLeft"..i]:GetText()
+    leftTextR[i], leftTextG[i], leftTextB[i] = _G[self:GetName().."TextLeft"..i]:GetTextColor()
 
-
-    -- If the recipe has no product, there is also only one call of OnTooltipSetItem().
-    local itemId = tonumber(string_match(link, "^.-:(%d+):"))
-    local spellId, productId = LibStub("LibRecipes-3.0"):GetRecipeInfo(itemId)
-
-    -- print(spellId, productId)
-    if not spellId and not productId then return end
+    rightText[i] = _G[self:GetName().."TextRight"..i]:GetText()
+    rightTextR[i], rightTextG[i], rightTextB[i] = _G[self:GetName().."TextRight"..i]:GetTextColor()
 
 
-    if productId and lastPosthook < GetTime() then
+    -- print(i, leftText[i])
 
-      lastPosthook = GetTime()
 
-      -- For debugging:
-      -- print("|n|nPOSTHOOK: This is the first call, STOP!")
-      -- for i = 1, self:NumLines(), 1 do
-        -- local line = _G[self:GetName().."TextLeft"..i]:GetText()
-        -- print (i, line)
-      -- end
-
-      return
-
+    if not reagentsLineNumber and i > useTeachesYouLineNumber then
+      -- The reagents are directly after useTeachesYouLineNumber
+      -- unless TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN is in between.
+      if leftText[i] ~= TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN then
+        reagentsLineNumber = i
+      end
     end
 
 
-    -- For debugging:
-    -- print("|n|nPOSTHOOK: This is the second call, PROCEED!")
-    -- for i = 1, self:NumLines(), 1 do
-      -- local line = _G[self:GetName().."TextLeft"..i]:GetText()
-      -- print (i, line)
-    -- end
+    if not productStartLine then
 
-    -- Sometimes OnTooltipSetItem() is called several times in a row (e.g. Bagnon Cached items).
-    -- Then we have to let the next first call know that it is the first call.
-    lastPosthook = 0
+      -- For comparison, ignore the initial linebreak character in the recipe tooltip.
+      if strsub(leftText[i], 2) == recipeProductTooltipLines[1].leftText then
 
-    -- Collect the other important line numbers.
-    local recipeProductFirstLineNumber = nil
-    local reagentsLineNumber = nil
-    local moneyFrameLineNumber = nil
-    -- Should always be the same as itemSellPrice.
-    local moneyAmount = nil
+        productStartLine = i
+        -- print("-----> Found beginning", productStartLine)
 
+        numLinesRecipeProduct = numLinesRecipeProduct + 1
+      end
 
-    -- Check if there is a moneyFrameLineNumber.
-    if itemSellPrice > 0 then
-      if self.shownMoneyFrames then
-        -- If there are money frames, we check if "SELL_PRICE: ..." is among them.
-        for i = 1, self.shownMoneyFrames, 1 do
+    elseif not productEndLine then
 
-          local moneyFrameName = self:GetName().."MoneyFrame"..i
-          if _G[moneyFrameName.."PrefixText"]:GetText() == string_format("%s:", SELL_PRICE) then
+      if not recipeProductTooltipLines[numLinesRecipeProduct].leftText then
+        productEndLine = i - 1
+        -- print("-----> Found ending", productEndLine)
+      else
 
-            local _, moneyFrameAnchor = _G[moneyFrameName]:GetPoint(1)
-            moneyFrameLineNumber = tonumber(string_match(moneyFrameAnchor:GetName(), self:GetName().."TextLeft(%d+)"))
-            -- Should always be the same as itemSellPrice, as recipes never stack.
-            moneyAmount = _G[moneyFrameName].staticMoney
-            break
+        -- Check that the every line of the product tooltip is there.
+
+        -- print("---------->", leftText[i], i)
+        -- print("=======", recipeProductTooltipLines[numLinesRecipeProduct].leftText, numLinesRecipeProduct)
+
+        if leftText[i] ~= recipeProductTooltipLines[numLinesRecipeProduct].leftText then
+
+          -- Sometimes there is an extra blank line in the product tooltip,
+          -- we then continue looking in the next line.
+          if recipeProductTooltipLines[numLinesRecipeProduct].leftText == "" then
+            i = i - 1
+          else
+            print("TidyRecipeTooltip: Did not find a line of product tooltip in recipe tooltip:", recipeProductTooltipLines[numLinesRecipeProduct].leftText)
+            print("TidyRecipeTooltip:", recipeItemName)
+            return
           end
         end
       end
-    end
 
-
-    -- Scan the original tooltip and collect the lines.
-
-
-    local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, itemId)
-    if not useTeachesYouLineNumber then
-      print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
-      return
-    end
-
-    -- Store all text and text colours of the original tooltip lines.
-    -- TODO: Unfortunately I do not know how to store the "indented word wrap".
-    --       Therefore, we have to put wrap=true for most lines in the new tooltip,
-    --       except for those we have obsevered to be never wrapped.
-    local leftText = {}
-    local leftTextR = {}
-    local leftTextG = {}
-    local leftTextB = {}
-
-    local rightText = {}
-    local rightTextR = {}
-    local rightTextG = {}
-    local rightTextB = {}
-
-
-
-
-    -- Store the number of lines for after ClearLines().
-    local numLines = self:NumLines()
-
-
-
-
-    -- Store all lines of the original tooltip.
-    for i = 1, numLines, 1 do
-
-      leftText[i] = _G[self:GetName().."TextLeft"..i]:GetText()
-      leftTextR[i], leftTextG[i], leftTextB[i] = _G[self:GetName().."TextLeft"..i]:GetTextColor()
-
-      rightText[i] = _G[self:GetName().."TextRight"..i]:GetText()
-      rightTextR[i], rightTextG[i], rightTextB[i] = _G[self:GetName().."TextRight"..i]:GetTextColor()
-
-
-      -- Collect the important line numbers.
-
-      -- The recipe product line begins with a line break!
-      if not recipeProductFirstLineNumber then
-        if string_byte(string_sub(leftText[i], 1, 1)) == 10 then
-          recipeProductFirstLineNumber = i
-        end
-      -- Don't need to do anything until after useTeachesYouLineNumber.
-      elseif not reagentsLineNumber and i > useTeachesYouLineNumber then
-        -- The reagents are directly after useTeachesYouLineNumber
-        -- unless TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN is in between.
-        if leftText[i] ~= TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN then
-          reagentsLineNumber = i
-        end
-      end
+      numLinesRecipeProduct = numLinesRecipeProduct + 1
 
     end
 
-
-    if not recipeProductFirstLineNumber or not reagentsLineNumber then return end
-
-
-    self:ClearLines()
-
-    -- Overriding GameTooltip.GetItem(), such that other addons can still use it
-    -- to learn which item is displayed. Will be restored after GameTooltip:OnHide() (see above).
-    -- (Actually not needed if we are really the last tooltip hook, but it does not hurt either.)
-    self.GetItem = function(self) return name, link end
+  end
 
 
-    -- Never word wrap the title line!
-    AddLineOrDoubleLine(self, leftText[1], rightText[1], leftTextR[1], leftTextG[1], leftTextB[1], rightTextR[1], rightTextG[1], rightTextB[1], false)
 
-    -- Print the header lines.
-    for i = 2, recipeProductFirstLineNumber-1, 1 do
-      AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
+  -- If we did not find the product tooltip in the recipe tooltip, we quit.
+  -- This should also take care of formulas not teaching an item, where product tooltip and recipe tooltip are the same,
+  -- because when we look for the first line we cut off the first character.
+  if not productStartLine then
+    return
+  end
+
+  if not productEndLine then
+    print("TidyRecipeTooltip: Recipe tooltip ended before product tooltip!")
+    print("TidyRecipeTooltip:", recipeItemName)
+    return
+  end
+
+  if not reagentsLineNumber then
+    return
+  end
+
+  -- print("moneyFrameLineNumber", moneyFrameLineNumber, " (moneyAmount", moneyAmount)
+  -- print("Product in lines", productStartLine, "to", productEndLine)
+  -- print("reagentsLineNumber", reagentsLineNumber)
+  -- print("useTeachesYouLineNumber", useTeachesYouLineNumber)
+
+
+
+  -- #########################################################
+  -- Rebuild the tooltip!
+  self:ClearLines()
+
+  -- Overriding GameTooltip.GetItem(), such that other addons can still use it
+  -- to learn which item is displayed. Will be restored after GameTooltip:OnHide() (see above).
+  -- (Should not be necessary, when we make sure we are the last addon to hook.)
+  self.GetItem = function(self) return name, unreliableLink, recipeItemId end
+
+
+  -- Never word wrap the title line!
+  AddLineOrDoubleLine(self, leftText[1], rightText[1], leftTextR[1], leftTextG[1], leftTextB[1], rightTextR[1], rightTextG[1], rightTextB[1], false)
+
+
+  -- Print the header lines of the recipe.
+  for i = 2, productStartLine-1, 1 do
+    AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
+  end
+
+
+
+  -- Print "Use: Teaches you" always in green!
+  self:AddLine(leftText[useTeachesYouLineNumber], 0, 1, 0, true)
+
+
+
+  -- Print everything after useTeachesYouLineNumber until the money line.
+  -- except for reagentsLineNumber.
+  -- Also never word wrap here!
+  for i = useTeachesYouLineNumber+1, moneyFrameLineNumber-1, 1 do
+    if i~= reagentsLineNumber then
+      AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], false)
     end
+  end
 
-    -- Print "Use: Teaches you" in green!
-    self:AddLine(leftText[useTeachesYouLineNumber], 0, 1, 0, true)
+  -- Print money line if applicable.
+  if moneyAmount or recipeItemSellPrice > 0 then
+    SetTooltipMoney(self, moneyAmount or recipeItemSellPrice, nil, string_format("%s:", SELL_PRICE))
+  end
 
-    -- Print everything after useTeachesYouLineNumber until secondCallAddonsStartLine - 1
-    -- except for reagentsLineNumber and moneyFrameLineNumber.
-    -- Also never word wrap here!
-    for i = useTeachesYouLineNumber+1, secondCallAddonsStartLine - 1, 1 do
-      if i ~= reagentsLineNumber and i~= moneyFrameLineNumber then
-        AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], false)
-      end
-    end
 
-    -- Print a money line if applicable.
-    if moneyAmount or itemSellPrice > 0 then
-      SetTooltipMoney(self, moneyAmount or itemSellPrice, nil, string_format("%s:", SELL_PRICE))
-    end
+  -- Print the recipe product info.
+  for i = productStartLine, productEndLine, 1 do
+    AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
+  end
 
-    -- Print the recipe product info.
-    for i = recipeProductFirstLineNumber, firstCallAddonsStartLine-1, 1 do
-      AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
-    end
+  -- Print the reagents.
+  self:AddLine(" ")
+  self:AddLine(MINIMAP_TRACKING_VENDOR_REAGENT .. ": " .. leftText[reagentsLineNumber], leftTextR[reagentsLineNumber], leftTextG[reagentsLineNumber], leftTextB[reagentsLineNumber], true)
 
-    -- Print the reagents.
-    self:AddLine(" ")
-    self:AddLine(MINIMAP_TRACKING_VENDOR_REAGENT .. ": " .. leftText[reagentsLineNumber], leftTextR[reagentsLineNumber], leftTextG[reagentsLineNumber], leftTextB[reagentsLineNumber], true)
+  -- Print everything after the original money line.
+  for i = moneyFrameLineNumber+1, numLinesRecipe, 1 do
+    AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], false)
+  end
 
-    -- Print first call addons.
-    for i = firstCallAddonsStartLine, useTeachesYouLineNumber-1, 1 do
-      AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
-    end
-
-    -- Print second call addons.
-    for i = secondCallAddonsStartLine, numLines, 1 do
-      AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
-    end
-
-  end)
 end
 
 
 
+local function InitCode()
+  TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, RearrangeTooltip)
+end
 
 
--- I have to set my hook after all other tooltip addons.
--- Because I am doing a ClearLines(), which may cause other addons (like BagSync, Bagnon, etc.)
--- to clear the attribute they are using to only execute on the first of the
--- two calls of OnTooltipSetItem().
--- Therefore take this timer!
+-- Increase chance that we are the last addon to hook,
+-- avoiding interference with other addons.
 local startupFrame = CreateFrame("Frame")
 startupFrame:RegisterEvent("PLAYER_LOGIN")
 startupFrame:SetScript("OnEvent", function(self, event, ...)
-  C_Timer.After(3.0, InitCode)
+  C_Timer.After(3, InitCode)
 end)
+
 
 
 
@@ -423,13 +498,14 @@ end)
 -- testframe1:SetScript("OnEnter", function()
   -- GameTooltip:SetOwner(testframe1, "ANCHOR_TOPLEFT")
 
+  -- -- Recipes creating a usable item.
+  -- -- These are itemTypeId 15 (Miscellaneous)
+  -- -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")    -- itemSubTypeId 2 (Companion Pets)
+  -- -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")    -- itemSubTypeId 5 (Mounts)
+  -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")   -- itemSubTypeId 5 (Mounts)
+
   -- -- Grey recipe not teaching anything.
   -- -- GameTooltip:SetHyperlink("item:104230:0:0:0:0:0:0:0")
-
-  -- -- Recipes creating a usable item.
-  -- -- GameTooltip:SetHyperlink("item:67308:0:0:0:0:0:0:0")
-  -- -- GameTooltip:SetHyperlink("item:67538:0:0:0:0:0:0:0")
-  -- -- GameTooltip:SetHyperlink("item:141850:0:0:0:0:0:0:0")
 
   -- -- Formula that only teaches a spell but no item.
   -- -- GameTooltip:SetHyperlink("item:16252:0:0:0:0:0:0:0")
@@ -437,7 +513,17 @@ end)
   -- -- Recipes with buggy tooltips.
   -- -- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
   -- -- GameTooltip:SetHyperlink("item:142331:0:0:0:0:0:0:0")
-  -- GameTooltip:SetHyperlink("item:142333:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:142333:0:0:0:0:0:0:0")
+
+  -- -- GameTooltip:SetHyperlink("item:198132:0:0:0:0:0:0:0")
+
+  -- -- Pattern: Boots of Natural Grace
+  -- GameTooltip:SetHyperlink("item:30305:0:0:0:0:0:0:0")
+
+  -- -- Schematic: Unstable Temporal Time Shifter
+  -- -- GameTooltip:SetHyperlink("item:166736:0:0:0:0:0:0:0")
+
+
 
   -- GameTooltip:Show()
 -- end )

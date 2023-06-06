@@ -1,4 +1,4 @@
-## Interface: 90207
+## Interface: 100100
 ## Version: @project-version@
 ## Title: Tidy Recipe Tooltip
 ## Author: LudiusMaximus
@@ -8,7 +8,5 @@
 ## X-Wago-ID: Xb6X91Kp
 ## X-Donate: PayPal:ludiusmaximus@gmail.com
 ## X-License: The MIT License (MIT)
-
-embeds.xml
 
 main.lua
