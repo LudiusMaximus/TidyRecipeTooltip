@@ -145,11 +145,20 @@ local function CovertLine(line)
   -- for j = 1, strlen(line), 1 do
     -- newstring = newstring .. " " .. strsub(line, j, j)
   -- end
-  -- print(newstring)
+  -- print("before", newstring)
 
   converterTooltip:ClearLines()
   converterTooltip:AddLine(line)
-  return _G[converterTooltip:GetName().."TextLeft1"]:GetText()
+  
+  local returnString = _G[converterTooltip:GetName().."TextLeft1"]:GetText()
+  
+  -- local newstring = ""
+  -- for j = 1, strlen(returnString), 1 do
+    -- newstring = newstring .. " " .. strsub(returnString, j, j)
+  -- end
+  -- print("after", newstring)
+  
+  return returnString
 end
 
 
