@@ -137,7 +137,7 @@ end
 
 -- To convert strings with plurals like "2 |4car:cars;" into "2 cars".
 -- This is needed for recipe product tooltips like e.g. that of "Recipe: Elixir of Shadow Power".
-local converterTooltip = CreateFrame("GameTooltip", "converterTooltip", nil, "GameTooltipTemplate")
+local converterFontString = UIParent:CreateFontString(nil, "BACKGROUND", "GameFontNormal")
 local function CovertLine(line)
 
   -- -- Use this to see what a non-escaped line looks line.
@@ -147,10 +147,9 @@ local function CovertLine(line)
   -- end
   -- print("before", newstring)
 
-  converterTooltip:ClearLines()
-  converterTooltip:AddLine(line)
+  converterFontString:SetText(line)
   
-  local returnString = _G[converterTooltip:GetName().."TextLeft1"]:GetText()
+  local returnString = converterFontString:GetText()
   
   -- local newstring = ""
   -- for j = 1, strlen(returnString), 1 do
