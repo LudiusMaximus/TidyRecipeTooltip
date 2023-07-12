@@ -135,32 +135,6 @@ local function AddLineOrDoubleLine(tooltip, leftText, rightText, leftTextR, left
 end
 
 
--- To convert strings with plurals like "2 |4car:cars;" into "2 cars".
--- This is needed for recipe product tooltips like e.g. that of "Recipe: Elixir of Shadow Power".
-local converterFontString = UIParent:CreateFontString(nil, "BACKGROUND", "GameFontNormal")
-local function CovertLine(line)
-
-  -- -- Use this to see what a non-escaped line looks line.
-  -- local newstring = ""
-  -- for j = 1, strlen(line), 1 do
-    -- newstring = newstring .. " " .. strsub(line, j, j)
-  -- end
-  -- print("before", newstring)
-
-  converterFontString:SetText(line)
-  
-  local returnString = converterFontString:GetText()
-  
-  -- local newstring = ""
-  -- for j = 1, strlen(returnString), 1 do
-    -- newstring = newstring .. " " .. strsub(returnString, j, j)
-  -- end
-  -- print("after", newstring)
-  
-  return returnString
-end
-
-
 local function RearrangeTooltip(self)
 
   -- -- For debugging if Blizzard changes something, use this to investigate.
@@ -209,11 +183,9 @@ local function RearrangeTooltip(self)
 
 
 
-  -- Not needing this. We have to traverse the actual tooltip,
-  -- which has possibly the lines of over addons in it.
-  -- local recipeTooltipLines = C_TooltipInfo.GetItemByID(recipeItemId).lines
 
   -- -- For debugging.
+  -- local recipeTooltipLines = C_TooltipInfo.GetItemByID(recipeItemId).lines
   -- print("\n")
   -- print("Tooltip of recipe (only left text):")
   -- local numLines = 1
@@ -227,6 +199,7 @@ local function RearrangeTooltip(self)
 
   local recipeProductTooltipLines = C_TooltipInfo.GetItemByID(recipeProductItemId).lines
 
+
   -- -- For debugging.
   -- print("\n")
   -- print("Tooltip of recipe product (only left text):")
@@ -237,21 +210,6 @@ local function RearrangeTooltip(self)
   -- end
   -- print("Sell price of recipe product:", recipeProductItemSellPrice)
 
-
-
-  -- If the last line of product tooltip is "", strip it.
-  -- This is necessary because we are double-checking line by line if the
-  -- product tooltip is actually in the recipe tooltip.
-  local numLinesRecipeProduct = 1
-  while recipeProductTooltipLines[numLinesRecipeProduct] do
-    -- Also convert every line into the interpreted form.
-    recipeProductTooltipLines[numLinesRecipeProduct].leftText = CovertLine(recipeProductTooltipLines[numLinesRecipeProduct].leftText)
-    numLinesRecipeProduct = numLinesRecipeProduct + 1
-  end
-  numLinesRecipeProduct = numLinesRecipeProduct - 1
-  if recipeProductTooltipLines[numLinesRecipeProduct].leftText == "" then
-    recipeProductTooltipLines[numLinesRecipeProduct] = nil
-  end
 
 
   -- To store the line of the money frame.
@@ -275,27 +233,39 @@ local function RearrangeTooltip(self)
         end
       end
     end
-  end
-  if not moneyFrameLineNumber then
-    print("TidyRecipeTooltip: Could not find money line. If this behaviour is reproducible, please contact the developer!")
-    return
+    if not moneyFrameLineNumber then
+      print("TidyRecipeTooltip: Could not find money line. If this behaviour is reproducible, please contact the developer!")
+      return
+    end
+
+  -- If the recipe does not have a sell price (e.g. "Recipe: Haunted Herring"),
+  -- we take the last line of the original recipe tooltip. Should also work...
+  else
+
+    local recipeTooltipLines = C_TooltipInfo.GetItemByID(recipeItemId).lines
+    local numLines = 1
+    while recipeTooltipLines[numLines] do
+      numLines = numLines + 1
+    end
+    moneyFrameLineNumber = numLines - 1
+
   end
 
+
+
+  -- To store the start line of recipeProductItem tooltip in recipe tooltip.
+  local productStartLine = nil
 
   -- To store the line of recipe reagents.
   local reagentsLineNumber = nil
 
-  -- Needed to identify reagent line number.
+  -- Needed to identify end of product tooltip and reagent line number.
   local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, recipeItemId)
   if not useTeachesYouLineNumber then
     print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
     return
   end
 
-
-  -- To store start and end line of recipeProductItem tooltip in recipe tooltip.
-  local productStartLine = nil
-  local productEndLine = nil
 
 
   -- To store all text and text colours of the original tooltip lines.
@@ -310,11 +280,6 @@ local function RearrangeTooltip(self)
   local rightTextB = {}
 
 
-
-  -- To compare the tooltip line by line with the product tooltip.
-  local numLinesRecipeProduct = 1
-
-
   local numLinesRecipe = self:NumLines()
 
   for i = 1, numLinesRecipe, 1 do
@@ -325,62 +290,20 @@ local function RearrangeTooltip(self)
     rightText[i] = _G[self:GetName().."TextRight"..i]:GetText()
     rightTextR[i], rightTextG[i], rightTextB[i] = _G[self:GetName().."TextRight"..i]:GetTextColor()
 
-
     -- print(i, leftText[i])
 
 
-    if not reagentsLineNumber and i > useTeachesYouLineNumber then
-      -- The reagents are directly after useTeachesYouLineNumber
-      -- unless TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN is in between.
-      if leftText[i] ~= TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN then
-        reagentsLineNumber = i
-      end
+    -- For comparison, ignore the initial linebreak character in the recipe tooltip.
+    if not productStartLine and strsub(leftText[i], 2) == recipeProductTooltipLines[1].leftText then
+      productStartLine = i
     end
 
-
-    if not productStartLine then
-
-      -- For comparison, ignore the initial linebreak character in the recipe tooltip.
-      if strsub(leftText[i], 2) == recipeProductTooltipLines[1].leftText then
-
-        productStartLine = i
-        -- print("-----> Found beginning", productStartLine)
-
-        numLinesRecipeProduct = numLinesRecipeProduct + 1
-      end
-
-    elseif not productEndLine then
-
-      if not recipeProductTooltipLines[numLinesRecipeProduct].leftText then
-        productEndLine = i - 1
-        -- print("-----> Found ending", productEndLine)
-      else
-
-        -- Check that the every line of the product tooltip is there.
-
-        -- print("---------->", leftText[i], i)
-        -- print("=======", recipeProductTooltipLines[numLinesRecipeProduct].leftText, numLinesRecipeProduct)
-
-        if leftText[i] ~= recipeProductTooltipLines[numLinesRecipeProduct].leftText then
-
-          -- Sometimes there is an extra blank line in the product tooltip,
-          -- we then continue looking in the next line.
-          if recipeProductTooltipLines[numLinesRecipeProduct].leftText == "" then
-            i = i - 1
-          else
-            print("TidyRecipeTooltip: Did not find a line of product tooltip in recipe tooltip:", recipeProductTooltipLines[numLinesRecipeProduct].leftText)
-            print("TidyRecipeTooltip:", recipeItemName)
-            return
-          end
-        end
-      end
-
-      numLinesRecipeProduct = numLinesRecipeProduct + 1
-
+    -- The reagents are directly after useTeachesYouLineNumber unless TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN is in between.
+    if not reagentsLineNumber and i > useTeachesYouLineNumber and leftText[i] ~= TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN then
+      reagentsLineNumber = i
     end
 
   end
-
 
 
   -- If we did not find the product tooltip in the recipe tooltip, we quit.
@@ -390,20 +313,22 @@ local function RearrangeTooltip(self)
     return
   end
 
-  if not productEndLine then
-    print("TidyRecipeTooltip: Recipe tooltip ended before product tooltip!")
-    print("TidyRecipeTooltip:", recipeItemName)
-    return
-  end
-
   if not reagentsLineNumber then
     return
   end
 
+
+
+
   -- print("moneyFrameLineNumber", moneyFrameLineNumber, " (moneyAmount", moneyAmount)
-  -- print("Product in lines", productStartLine, "to", productEndLine)
+  -- print("productStartLine", productStartLine)
   -- print("reagentsLineNumber", reagentsLineNumber)
   -- print("useTeachesYouLineNumber", useTeachesYouLineNumber)
+
+
+
+  -- -- For debugging.
+  -- if true then return end
 
 
 
@@ -433,9 +358,8 @@ local function RearrangeTooltip(self)
 
 
 
-  -- Print everything after useTeachesYouLineNumber until the money line.
-  -- except for reagentsLineNumber.
-  -- Also never word wrap here!
+  -- Print everything after useTeachesYouLineNumber until the money line except for reagentsLineNumber.
+  -- Never word wrap here!
   for i = useTeachesYouLineNumber+1, moneyFrameLineNumber-1, 1 do
     if i~= reagentsLineNumber then
       AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], false)
@@ -445,11 +369,13 @@ local function RearrangeTooltip(self)
   -- Print money line if applicable.
   if moneyAmount or recipeItemSellPrice > 0 then
     SetTooltipMoney(self, moneyAmount or recipeItemSellPrice, nil, string_format("%s:", SELL_PRICE))
+  else
+    self:AddLine(ITEM_UNSELLABLE, 1, 1, 1, false)
   end
 
 
   -- Print the recipe product info.
-  for i = productStartLine, productEndLine, 1 do
+  for i = productStartLine, useTeachesYouLineNumber-1, 1 do
     AddLineOrDoubleLine(self, leftText[i], rightText[i], leftTextR[i], leftTextG[i], leftTextB[i], rightTextR[i], rightTextG[i], rightTextB[i], true)
   end
 
