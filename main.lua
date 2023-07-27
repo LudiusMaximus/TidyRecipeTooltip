@@ -233,14 +233,12 @@ local function RearrangeTooltip(self)
         end
       end
     end
-    if not moneyFrameLineNumber then
-      print("TidyRecipeTooltip: Could not find money line. If this behaviour is reproducible, please contact the developer!")
-      return
-    end
-
+  end
+    
+    
   -- If the recipe does not have a sell price (e.g. "Recipe: Haunted Herring"),
   -- we take the last line of the original recipe tooltip. Should also work...
-  else
+  if moneyFrameLineNumber == nil then
 
     local recipeTooltipLines = C_TooltipInfo.GetItemByID(recipeItemId).lines
     local numLines = 1
