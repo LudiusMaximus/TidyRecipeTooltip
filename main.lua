@@ -12,7 +12,7 @@ local tonumber = tonumber
 local _G = _G
 local CreateFrame = _G.CreateFrame
 local GameTooltip = _G.GameTooltip
-local GetItemInfo = _G.GetItemInfo
+local GetItemInfo = _G.C_Item.GetItemInfo
 local GetTime     = _G.GetTime
 
 local LE_ITEM_RECIPE_BOOK = _G.LE_ITEM_RECIPE_BOOK
@@ -168,6 +168,11 @@ local function RearrangeTooltip(self)
   local recipeProductItemId = tonumber(string_match(recipeProductItemLink, "^.-:(%d+):"))
   -- print("recipeProductItemId", recipeProductItemId)
 
+
+  -- This is how we recognise "false" recipes like Prospecting, Milling, Unravelling, etc...
+  if recipeItemId == recipeProductItemId then return end
+
+
   -- Get sell price (and types, not needed) of recipe product.
   local _, _, _, _, _, _, _, _, _, _, recipeProductItemSellPrice, recipeProductItemTypeId, recipeProductItemSubTypeId = GetItemInfo(recipeProductItemId)
 
@@ -234,8 +239,8 @@ local function RearrangeTooltip(self)
       end
     end
   end
-    
-    
+
+
   -- If the recipe does not have a sell price (e.g. "Recipe: Haunted Herring"),
   -- we take the last line of the original recipe tooltip. Should also work...
   if moneyFrameLineNumber == nil then
@@ -260,7 +265,7 @@ local function RearrangeTooltip(self)
   -- Needed to identify end of product tooltip and reagent line number.
   local useTeachesYouLineNumber = GetUseTeachesYouLineNumber(self, recipeItemId)
   if not useTeachesYouLineNumber then
-    print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please contact the developer!")
+    print("TidyRecipeTooltip: Could not find \"Use: Teaches you...\" line. If this behaviour is reproducible, please report item id", recipeItemId, "to the developer!")
     return
   end
 
@@ -450,11 +455,17 @@ end)
   -- -- GameTooltip:SetHyperlink("item:198132:0:0:0:0:0:0:0")
 
   -- -- Pattern: Boots of Natural Grace
-  -- GameTooltip:SetHyperlink("item:30305:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:30305:0:0:0:0:0:0:0")
 
   -- -- Schematic: Unstable Temporal Time Shifter
   -- -- GameTooltip:SetHyperlink("item:166736:0:0:0:0:0:0:0")
 
+  -- -- "Recipes" where the recipeItemId == recipeProductItemId.
+  -- GameTooltip:SetHyperlink("item:16083:0:0:0:0:0:0:0")    -- Expert Fishing - The Bass and You
+  -- -- GameTooltip:SetHyperlink("item:219191:0:0:0:0:0:0:0")   -- Hastily Scrawled Notes
+  -- -- GameTooltip:SetHyperlink("item:221968:0:0:0:0:0:0:0")   -- Legibly Scribbled Notes
+  -- -- GameTooltip:SetHyperlink("item:194709:0:0:0:0:0:0:0")   -- Prospecting
+  
 
 
   -- GameTooltip:Show()
