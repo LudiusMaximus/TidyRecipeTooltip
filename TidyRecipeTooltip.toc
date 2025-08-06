@@ -1,6 +1,7 @@
 ## Interface: 110107
 ## Version: @project-version@
 ## Title: Tidy Recipe Tooltip
+## IconTexture: interface/icons/inv_scroll_03.blp
 ## Author: LudiusMaximus
 ## Notes: Rearranges the tooltip of recipes in a meaningfull way.
 ## X-Curse-Project-ID: 335775
