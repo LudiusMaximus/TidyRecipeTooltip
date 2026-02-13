@@ -1,4 +1,4 @@
-## Interface: 120000
+## Interface: 120001
 ## Version: @project-version@
 ## Title: Tidy Recipe Tooltip
 ## IconTexture: interface/icons/inv_scroll_03.blp
