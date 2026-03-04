@@ -8,6 +8,10 @@ local string_match = string.match
 local string_sub = string.sub
 
 local tonumber = tonumber
+local math_floor = math.floor
+local math_ceil  = math.ceil
+
+local issecretvalue = _G.issecretvalue or function() return false end
 
 local _G = _G
 local CreateFrame = _G.CreateFrame
@@ -23,6 +27,226 @@ local TOOLTIP_SUPERCEDING_SPELL_NOT_KNOWN = _G.TOOLTIP_SUPERCEDING_SPELL_NOT_KNO
 local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 
 
+-- ============================================================================
+-- Custom money frame to replace SetTooltipMoney.
+--
+-- THE PROBLEM:
+-- Our tooltip hook is registered via TooltipDataProcessor.AddTooltipPostCall,
+-- so it fires inside securecallfunction + forceinsecure() — meaning ALL
+-- operations in our callback are attributed to TidyRecipeTooltip (insecure).
+-- When we called SetTooltipMoney from this context, it called MoneyFrame_Update
+-- which inherited our insecure execution context.  MoneyFrame_Update does:
+--       copperButton:SetText(copper)
+--       copperButton:SetWidth(copperButton:GetTextWidth() + iconWidth)   (line 292)
+-- The SetText() call is insecure (attributed to our addon), so GetTextWidth()
+-- returns a secret value.  The arithmetic GetTextWidth() + iconWidth crashes:
+--       "attempt to perform arithmetic on a secret number value"
+--
+-- THE FIX:
+-- We never call SetTooltipMoney.  Instead we pre-create our own
+-- TooltipMoneyFrameTemplate frame and update it with a custom function that
+-- uses pre-measured widths (measured at load time, outside securecallfunction)
+-- for SetWidth() and minimum-width computation, never calling GetWidth()/
+-- GetTextWidth()/GetStringWidth() at runtime.
+-- ============================================================================
+
+-- Pre-create one TooltipMoneyFrameTemplate frame (TRT only ever shows one
+-- money line per tooltip).
+local trtMoneyFrame = CreateFrame("Frame", "TRTMoneyFrame1", GameTooltip, "TooltipMoneyFrameTemplate")
+MoneyFrame_SetType(trtMoneyFrame, "STATIC")
+-- Disable the OnShow script which would call Blizzard's MoneyFrame_Update.
+trtMoneyFrame:SetScript("OnShow", nil)
+if trtMoneyFrame.SuffixText then trtMoneyFrame.SuffixText:SetText("") end
+trtMoneyFrame:Hide()
+
+-- Constants matching SetTooltipMoney / MoneyFrame_Update.
+local TRT_PREFIX_XOFFSET    = 4   -- matches SetTooltipMoney's xOffset
+local TRT_PREFIX_GAP        = 13  -- gap prefix -> first coin (~ iconWidth)
+local TRT_COIN_GAP          = 4   -- gap between denomination groups
+local TRT_SMALL_ICON_WIDTH  = 13  -- MONEY_ICON_WIDTH_SMALL
+
+-- Pre-measured component widths.
+local TRT_PREFIX_TEXT_WIDTH  = 0   -- width of "Sell Price:" prefix text
+local TRT_SC_TEXT_WIDTH      = 0   -- text width of "99" (max silver/copper)
+local TRT_SC_BUTTON_WIDTH    = 0   -- TRT_SC_TEXT_WIDTH + TRT_SMALL_ICON_WIDTH
+local TRT_GOLD_TEXT_WIDTH    = {}  -- gold text width keyed by formatted string length
+
+do
+  -- Measure prefix.
+  local prefix = string_format("%s:", SELL_PRICE)
+  trtMoneyFrame.PrefixText:SetText(prefix)
+  TRT_PREFIX_TEXT_WIDTH = trtMoneyFrame.PrefixText:GetStringWidth()
+
+  -- All coin buttons share the same font — use any one for measurement.
+  local btn = trtMoneyFrame.CopperButton
+  btn.Text:SetText("99")
+  TRT_SC_TEXT_WIDTH = btn.Text:GetStringWidth()
+  TRT_SC_BUTTON_WIDTH = TRT_SC_TEXT_WIDTH + TRT_SMALL_ICON_WIDTH
+
+  -- Gold: measure BreakUpLargeNumbers output for each formatted string length.
+  -- 9->"9"(1), 99->"99"(2), 999->"999"(3), 9999->"9,999"(5), 99999->"99,999"(6), 999999->"999,999"(7).
+  for _, g in ipairs({9, 99, 999, 9999, 99999, 999999}) do
+    local s = BreakUpLargeNumbers(g)
+    btn.Text:SetText(s)
+    TRT_GOLD_TEXT_WIDTH[#s] = btn.Text:GetStringWidth()
+  end
+
+  trtMoneyFrame.PrefixText:SetText("")
+  btn.Text:SetText("")
+  trtMoneyFrame:Hide()
+end
+
+
+-- Update coin buttons using LEFT-to-RIGHT relative anchoring and pre-measured
+-- widths.  This replaces Blizzard's MoneyFrame_Update which would crash
+-- inside securecallfunction due to tainted GetTextWidth() calls.
+local function TRT_MoneyFrame_Update(frame, money, prefix)
+  local gold   = math_floor(money / 10000)
+  local silver = math_floor(money / 100) % 100
+  local copper = money % 100
+
+  -- Set prefix text.
+  if frame.PrefixText then
+    frame.PrefixText:SetText(prefix)
+    frame.PrefixText:Show()
+  end
+
+  -- Configure coin buttons.
+  local goldBtn   = frame.GoldButton
+  local silverBtn = frame.SilverButton
+  local copperBtn = frame.CopperButton
+
+  if gold > 0 then
+    local goldStr = BreakUpLargeNumbers(gold)
+    goldBtn.Text:SetText(goldStr)
+    local tw = TRT_GOLD_TEXT_WIDTH[#goldStr]
+    if not tw then
+      -- Gold has more digits than pre-measured; use the widest known width.
+      for _, w in pairs(TRT_GOLD_TEXT_WIDTH) do
+        if not tw or w > tw then tw = w end
+      end
+    end
+    goldBtn:SetWidth(tw + TRT_SMALL_ICON_WIDTH)
+    goldBtn:Show()
+  else
+    goldBtn:Hide()
+  end
+
+  if silver > 0 then
+    silverBtn.Text:SetText(silver)
+    silverBtn:SetWidth(TRT_SC_BUTTON_WIDTH)
+    silverBtn:Show()
+  else
+    silverBtn:Hide()
+  end
+
+  if copper > 0 then
+    copperBtn.Text:SetText(copper)
+    copperBtn:SetWidth(TRT_SC_BUTTON_WIDTH)
+    copperBtn:Show()
+  else
+    copperBtn:Hide()
+  end
+
+  -- Anchor LEFT-to-RIGHT from PrefixText (see SPPU for rationale).
+  local prevAnchor = frame.PrefixText
+  local gap = TRT_PREFIX_GAP
+  for _, btn in ipairs({ goldBtn, silverBtn, copperBtn }) do
+    if btn:IsShown() then
+      btn:ClearAllPoints()
+      btn:SetPoint("LEFT", prevAnchor, "RIGHT", gap, 0)
+      prevAnchor = btn
+      gap = TRT_COIN_GAP
+    end
+  end
+end
+
+
+-- Compute tooltip minimum width from pre-measured component widths.
+local function TRT_ComputeMinWidth(gold, silver, copper)
+  local total = TRT_PREFIX_XOFFSET + TRT_PREFIX_TEXT_WIDTH
+  local gap = TRT_PREFIX_GAP
+
+  if gold > 0 then
+    local goldStr = BreakUpLargeNumbers(gold)
+    local tw = TRT_GOLD_TEXT_WIDTH[#goldStr]
+    if not tw then
+      for _, w in pairs(TRT_GOLD_TEXT_WIDTH) do
+        if not tw or w > tw then tw = w end
+      end
+    end
+    total = total + gap + tw + TRT_SMALL_ICON_WIDTH
+    gap = TRT_COIN_GAP
+  end
+
+  if silver > 0 then
+    total = total + gap + TRT_SC_TEXT_WIDTH + TRT_SMALL_ICON_WIDTH
+    gap = TRT_COIN_GAP
+  end
+
+  if copper > 0 then
+    total = total + gap + TRT_SC_TEXT_WIDTH + TRT_SMALL_ICON_WIDTH
+  end
+
+  return math_ceil(total) + 20  -- +20 for tooltip left/right insets
+end
+
+
+-- Replacement for SetTooltipMoney that avoids Blizzard's MoneyFrame_Update.
+-- Adds a blank line, positions our pre-created frame at that line, and sets
+-- tooltip minimum width from pre-measured values.
+local function TRT_SetTooltipMoney(tooltip, money, prefix)
+  GameTooltip_AddBlankLinesToTooltip(tooltip, 1)
+  local numLines = tooltip:NumLines()
+
+  TRT_MoneyFrame_Update(trtMoneyFrame, money, prefix)
+
+  trtMoneyFrame:SetParent(tooltip)
+  trtMoneyFrame:ClearAllPoints()
+  trtMoneyFrame:SetPoint("LEFT", tooltip:GetLeftLine(numLines), "LEFT", TRT_PREFIX_XOFFSET, 0)
+  trtMoneyFrame:Show()
+
+  -- Set minimum width.
+  local gold   = math_floor(money / 10000)
+  local silver = math_floor(money / 100) % 100
+  local copper = money % 100
+
+  local minWidth
+  do
+    local total  = TRT_PREFIX_XOFFSET
+    local secret = false
+
+    if trtMoneyFrame.PrefixText then
+      local pw = trtMoneyFrame.PrefixText:GetStringWidth()
+      if issecretvalue(pw) then secret = true else total = total + pw end
+    end
+
+    if not secret then
+      local g = TRT_PREFIX_GAP
+      for _, btn in ipairs({ trtMoneyFrame.GoldButton, trtMoneyFrame.SilverButton, trtMoneyFrame.CopperButton }) do
+        if btn:IsShown() then
+          local tw = btn.Text:GetStringWidth()
+          if issecretvalue(tw) then secret = true; break end
+          total = total + g + tw + TRT_SMALL_ICON_WIDTH
+          g = TRT_COIN_GAP
+        end
+      end
+    end
+
+    if secret then
+      minWidth = TRT_ComputeMinWidth(gold, silver, copper)
+      -- print("TRT: secret width, fallback minWidth =", minWidth, "(gold="..gold..", silver="..silver..", copper="..copper..")")
+    else
+      minWidth = math_ceil(total) + 20
+    end
+  end
+
+  if tooltip:GetMinimumWidth() < minWidth then
+    tooltip:SetMinimumWidth(minWidth)
+  end
+
+  tooltip.hasMoney = 1
+end
 
 
 
@@ -60,6 +284,7 @@ local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 local originalGetItem = GameTooltip.GetItem
 GameTooltip:HookScript("OnHide", function(self)
   self.GetItem = originalGetItem
+  trtMoneyFrame:Hide()
 end)
 
 
@@ -136,6 +361,10 @@ end
 
 
 local function RearrangeTooltip(self)
+
+  -- Hide custom money frame from a previous tooltip (item-to-item transitions
+  -- may not fire OnHide between items).
+  trtMoneyFrame:Hide()
 
   -- -- For debugging if Blizzard changes something, use this to investigate.
   -- PrintTable(self, 1)
@@ -371,7 +600,7 @@ local function RearrangeTooltip(self)
 
   -- Print money line if applicable.
   if moneyAmount or recipeItemSellPrice > 0 then
-    SetTooltipMoney(self, moneyAmount or recipeItemSellPrice, nil, string_format("%s:", SELL_PRICE))
+    TRT_SetTooltipMoney(self, moneyAmount or recipeItemSellPrice, string_format("%s:", SELL_PRICE))
   else
     self:AddLine(ITEM_UNSELLABLE, 1, 1, 1, false)
   end
