@@ -32,7 +32,7 @@ local MINIMAP_TRACKING_VENDOR_REAGENT = _G.MINIMAP_TRACKING_VENDOR_REAGENT
 --
 -- THE PROBLEM:
 -- Our tooltip hook is registered via TooltipDataProcessor.AddTooltipPostCall,
--- so it fires inside securecallfunction + forceinsecure() — meaning ALL
+-- so it fires inside securecallfunction + forceinsecure() - meaning ALL
 -- operations in our callback are attributed to TidyRecipeTooltip (insecure).
 -- When we called SetTooltipMoney from this context, it called MoneyFrame_Update
 -- which inherited our insecure execution context.  MoneyFrame_Update does:
@@ -77,7 +77,7 @@ do
   trtMoneyFrame.PrefixText:SetText(prefix)
   TRT_PREFIX_TEXT_WIDTH = trtMoneyFrame.PrefixText:GetStringWidth()
 
-  -- All coin buttons share the same font — use any one for measurement.
+  -- All coin buttons share the same font - use any one for measurement.
   local btn = trtMoneyFrame.CopperButton
   btn.Text:SetText("99")
   TRT_SC_TEXT_WIDTH = btn.Text:GetStringWidth()
