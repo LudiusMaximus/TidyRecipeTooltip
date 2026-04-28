@@ -318,8 +318,14 @@ if not teachesYouString[locale] then
 end
 
 
-
-
+-- Buggy tooltips:
+-- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
+local buggyTooltipsItemIds = {
+  [142331] = true,
+  [142333] = true,
+  [256964] = true,  -- https://www.wowhead.com/item=256964
+  [259182] = true,  -- https://www.wowhead.com/item=259182
+}
 
 -- Searches the tooltip for "Use: Teaches you..." and returns the line number.
 local function GetUseTeachesYouLineNumber(tooltip, itemId)
@@ -327,9 +333,7 @@ local function GetUseTeachesYouLineNumber(tooltip, itemId)
   -- This works also for koKR, which is right to left.
   local searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE .. ".-" .. teachesYouString[locale]
 
-  -- Buggy tooltips:
-  -- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
-  if itemId == 142331 or itemId == 142333 then
+  if buggyTooltipsItemIds[itemId] then
     searchPattern = "^" .. ITEM_SPELL_TRIGGER_ONUSE
   end
 
@@ -680,6 +684,8 @@ end)
   -- -- https://us.forums.blizzard.com/en/wow/t/faults-in-tooltips/825379
   -- -- GameTooltip:SetHyperlink("item:142331:0:0:0:0:0:0:0")
   -- -- GameTooltip:SetHyperlink("item:142333:0:0:0:0:0:0:0")
+  -- GameTooltip:SetHyperlink("item:256964:0:0:0:0:0:0:0")
+  -- -- GameTooltip:SetHyperlink("item:259182:0:0:0:0:0:0:0")
 
   -- -- GameTooltip:SetHyperlink("item:198132:0:0:0:0:0:0:0")
 
@@ -690,11 +696,11 @@ end)
   -- -- GameTooltip:SetHyperlink("item:166736:0:0:0:0:0:0:0")
 
   -- -- "Recipes" where the recipeItemId == recipeProductItemId.
-  -- GameTooltip:SetHyperlink("item:16083:0:0:0:0:0:0:0")    -- Expert Fishing - The Bass and You
+  -- -- GameTooltip:SetHyperlink("item:16083:0:0:0:0:0:0:0")    -- Expert Fishing - The Bass and You
   -- -- GameTooltip:SetHyperlink("item:219191:0:0:0:0:0:0:0")   -- Hastily Scrawled Notes
   -- -- GameTooltip:SetHyperlink("item:221968:0:0:0:0:0:0:0")   -- Legibly Scribbled Notes
   -- -- GameTooltip:SetHyperlink("item:194709:0:0:0:0:0:0:0")   -- Prospecting
-  
+
 
 
   -- GameTooltip:Show()
